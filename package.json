@@ -1,0 +1,57 @@
+{
+  "name": "@nkzw/web-app-template",
+  "version": "0.0.1",
+  "author": "Christoph Nakazawa <christoph.pojer@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/nkzw-tech/web-app-template.git"
+  },
+  "type": "module",
+  "scripts": {
+    "dev:setup": "vp run fbtee:all",
+    "fbtee:all": "vpx fbtee collect && vpx fbtee translate",
+    "prepare": "vp config"
+  },
+  "dependencies": {
+    "@nkzw/define-env": "^1.1.0",
+    "@nkzw/stack": "^2.3.2",
+    "better-auth": "^1.6.11",
+    "fbtee": "^1.7.6",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router": "^7.15.0"
+  },
+  "devDependencies": {
+    "@nkzw/babel-preset-fbtee": "^1.7.6",
+    "@nkzw/eslint-plugin": "^2.0.0",
+    "@nkzw/oxlint-config": "^1.2.1",
+    "@rolldown/plugin-babel": "^0.2.3",
+    "@swc/core": "^1.15.33",
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/node": "^25.7.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@typescript/native-preview": "7.0.0-dev.20260514.1",
+    "@vitejs/plugin-react": "^6.0.2",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "eslint-plugin-no-only-tests": "^3.4.0",
+    "eslint-plugin-perfectionist": "^5.9.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "tailwindcss": "^4.3.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "browserslist": [
+    ">0.2%",
+    "not dead",
+    "not op_mini all"
+  ],
+  "engines": {
+    "node": ">=23.0.0",
+    "pnpm": ">=11.0.0"
+  },
+  "packageManager": "pnpm@11.0.6"
+}
