@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        node-version: [26]
+        node-version: [24]
 
     steps:
       - uses: actions/checkout@v4
@@ -67,16 +67,28 @@ jobs:
 
       - name: Build Native Apps
         run: |
+          rm -rf ./out
+
           pnpm exec electron-forge make --platform=linux --arch=x64
+          test -d ./out
+          find ./out -maxdepth 5 -print | sort
+
           pnpm exec electron-forge make --platform=win32 --arch=x64
+          test -d ./out
 
       - name: List Native App Artifacts
         if: always()
-        run: find ./out -maxdepth 5 -print | sort
+        run: |
+          pwd
+          ls -la
+          find "${GITHUB_WORKSPACE}" -maxdepth 6 \( -name out -o -name make -o -name 'Codiff-*' -o -name 'codiff-*' \) -print | sort
+          if [ -d ./out ]; then
+            find ./out -maxdepth 5 -print | sort
+          fi
 
       - name: Upload Artifacts to GitHub
         uses: actions/upload-artifact@v4
         with:
           if-no-files-found: error
           name: native-apps
-          path: ./out
+          path: ${{ github.workspace }}/out
