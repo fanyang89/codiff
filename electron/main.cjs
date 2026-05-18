@@ -1,3 +1,4 @@
+const { execFile } = require('node:child_process');
 const {
   accessSync,
   constants,
@@ -254,6 +255,61 @@ const installTerminalHelper = async (browserWindow) => {
   }
 };
 
+const parseEditorCommand = (command) =>
+  command.match(/"[^"]+"|'[^']+'|\S+/g)?.map((part) => part.replace(/^['"]|['"]$/g, '')) ?? [];
+
+const runEditorCommand = (command, args) =>
+  new Promise((resolveCommand) => {
+    execFile(command, args, { windowsHide: true }, (error) => resolveCommand(!error));
+  });
+
+const getEditorCommands = (absolutePath) => {
+  const commands = [];
+  const customEditor = process.env.CODIFF_EDITOR;
+  if (customEditor) {
+    const [command, ...args] = parseEditorCommand(customEditor);
+    if (command) {
+      const hasFilePlaceholder = args.some((arg) => arg.includes('{file}'));
+      commands.push({
+        args:
+          args.length > 0
+            ? [
+                ...args.map((arg) => arg.replaceAll('{file}', absolutePath)),
+                ...(hasFilePlaceholder ? [] : [absolutePath]),
+              ]
+            : [absolutePath],
+        command,
+      });
+    }
+  }
+
+  for (const command of ['/opt/homebrew/bin/code', '/usr/local/bin/code', 'code']) {
+    commands.push({
+      args: ['-g', absolutePath],
+      command,
+    });
+  }
+
+  if (process.platform === 'darwin') {
+    commands.push({
+      args: ['-a', 'Visual Studio Code', absolutePath],
+      command: 'open',
+    });
+  }
+
+  return commands;
+};
+
+const openFileInEditor = async (absolutePath) => {
+  for (const { args, command } of getEditorCommands(absolutePath)) {
+    if (await runEditorCommand(command, args)) {
+      return;
+    }
+  }
+
+  await shell.openPath(absolutePath);
+};
+
 const buildApplicationMenu = () =>
   Menu.buildFromTemplate([
     ...(process.platform === 'darwin'
@@ -461,6 +517,19 @@ ipcMain.handle('codiff:getGitIdentity', async (event) => {
 });
 
 ipcMain.handle('codiff:getPreferences', () => preferences);
+
+ipcMain.handle('codiff:openFile', async (event, filePath) => {
+  const repositoryPath = windowRepositories.get(event.sender.id) || getLaunchPath();
+  const state = await readRepositoryState(repositoryPath);
+  const repositoryFilePath = validateRepositoryPath(filePath);
+  const absolutePath = resolve(state.root, repositoryFilePath);
+
+  if (existsSync(absolutePath)) {
+    await openFileInEditor(absolutePath);
+  } else {
+    await shell.openPath(state.root);
+  }
+});
 
 ipcMain.handle('codiff:showInFolder', async (event, filePath) => {
   const repositoryPath = windowRepositories.get(event.sender.id) || getLaunchPath();

@@ -848,17 +848,21 @@ const listRepositoryHistory = async (launchPath, limit = 200) => {
   const raw = await git(repoRoot, [
     'log',
     `--max-count=${limit}`,
-    '--format=%H%x00%P%x00%ct%x00%s%x00',
+    '--format=%H%x1f%P%x1f%ct%x1f%s%x1e',
   ]);
-  const parts = raw.split('\0').filter(Boolean);
   const entries = [];
 
-  for (let index = 0; index < parts.length; index += 4) {
+  for (const record of raw.split('\x1e')) {
+    const [ref, parents, committedAt, subject] = record.trim().split('\x1f');
+    if (!ref || !committedAt || subject == null) {
+      continue;
+    }
+
     entries.push({
-      committedAt: Number(parts[index + 2]) * 1000,
-      parents: parts[index + 1] ? parts[index + 1].split(' ') : [],
-      ref: parts[index],
-      subject: parts[index + 3],
+      committedAt: Number(committedAt) * 1000,
+      parents: parents ? parents.split(' ') : [],
+      ref,
+      subject,
     });
   }
 

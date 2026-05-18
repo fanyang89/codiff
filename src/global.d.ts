@@ -23,6 +23,7 @@ declare global {
       onFindInDiffs: (callback: () => void) => () => void;
       onPreferencesChanged: (callback: (preferences: CodiffPreferences) => void) => () => void;
       onRepositoryChanged: (callback: (change: { root: string }) => void) => () => void;
+      openFile: (path: string) => Promise<void>;
       showInFolder: (path: string) => Promise<void>;
     };
   }

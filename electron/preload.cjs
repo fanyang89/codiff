@@ -23,5 +23,6 @@ contextBridge.exposeInMainWorld('codiff', {
     ipcRenderer.on('codiff:repositoryChanged', listener);
     return () => ipcRenderer.removeListener('codiff:repositoryChanged', listener);
   },
+  openFile: (path) => ipcRenderer.invoke('codiff:openFile', path),
   showInFolder: (path) => ipcRenderer.invoke('codiff:showInFolder', path),
 });

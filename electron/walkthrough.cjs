@@ -4,6 +4,8 @@ const { tmpdir } = require('node:os');
 const { join } = require('node:path');
 
 const CODEX_TIMEOUT_MS = 45_000;
+const CODEX_MODEL = 'gpt-5.3-codex-spark';
+const CODEX_REASONING_EFFORT = 'high';
 const MAX_TOTAL_PATCH_CHARS = 160_000;
 const MAX_SECTION_PATCH_CHARS = 4_000;
 
@@ -18,10 +20,13 @@ const walkthroughSchema = {
             items: {
               additionalProperties: false,
               properties: {
+                action: { enum: ['review', 'scan', 'skim'], type: 'string' },
+                context: { type: 'string' },
+                impact: { enum: ['wide', 'contained', 'mechanical'], type: 'string' },
                 path: { type: 'string' },
                 reason: { type: 'string' },
               },
-              required: ['path', 'reason'],
+              required: ['path', 'reason', 'context', 'action', 'impact'],
               type: 'object',
             },
             type: 'array',
@@ -34,7 +39,15 @@ const walkthroughSchema = {
       },
       type: 'array',
     },
-    summary: { type: 'string' },
+    summary: {
+      additionalProperties: false,
+      properties: {
+        focus: { type: 'string' },
+        skim: { type: 'string' },
+      },
+      required: ['focus', 'skim'],
+      type: 'object',
+    },
     version: { const: 1, type: 'number' },
   },
   required: ['version', 'summary', 'groups'],
@@ -65,6 +78,11 @@ const truncate = (value, maxLength) => {
 
   return `${value.slice(0, maxLength)}\n...[truncated]`;
 };
+
+const cleanText = (value, fallback = '') =>
+  oneLine(value, fallback).replace(/\s*\.{3}\[truncated]$/i, '');
+
+const normalizeEnum = (value, allowed, fallback) => (allowed.has(value) ? value : fallback);
 
 const buildPatchExcerpt = (section, remainingBudget) => {
   const summary = section.summary?.reason ? `Summary: ${section.summary.reason}\n` : '';
@@ -110,13 +128,32 @@ const buildPromptInput = (state) => {
 
 const buildPrompt = (state) => `You are helping Codiff order a code review.
 
-Return a review walkthrough order, not review findings.
+Return a high-leverage review walkthrough order, not review findings.
 Do not inspect the repository or run shell commands; use only the digest below.
+Your job is to help a human reviewer spend attention where architectural judgment matters and avoid blocking work on low-value changes.
 Use every provided path exactly once.
-Prefer a top-down reading order: entry points, public contracts, core data flow, implementation, tests, docs, then config.
-Keep related files adjacent.
-Use concise group titles.
-Give each file one short reason, max 140 characters.
+Order files from highest review leverage to lowest.
+High leverage: architecture boundaries, public APIs, exported types, schemas, IPC, routing, persistence, auth/security, shared state, cross-cutting utilities, build/runtime behavior, files likely to affect multiple call sites, and tests that define important behavior or show how a new API is meant to be used.
+Medium leverage: feature implementation, contained behavior changes, local tests that clarify intent, and relevant config.
+Low leverage: leaf UI details, isolated tests/fixtures, docs, generated files, snapshots, lockfiles, formatting-only or mechanical churn.
+Rank by reviewability, not file type. A test may come before implementation when it is the clearest behavioral contract, usage example, or entry point for understanding the change. Do not always put tests first or last.
+Group files by review strategy, not by directory.
+Use group titles that tell the reviewer how to spend attention, such as "Review carefully", "Trace the data flow", "Verify behavior with tests", "Scan contained changes", or "Low value / skim".
+Avoid generic group titles like "Frontend files", "Tests", "Miscellaneous", or "Other changed files".
+For each file:
+- reason: why this file is in this position, max 140 characters.
+- context: what the reviewer should pay attention to, max 180 characters.
+- action: "review", "scan", or "skim".
+- impact: "wide", "contained", or "mechanical".
+Set impact to "wide" only when the file appears to affect multiple features, contracts, boundaries, shared behavior, review order, or a test that explains a shared contract. Use it sparingly; if uncertain, choose "contained".
+Set impact to "contained" when the change appears limited to one feature, leaf component, local behavior, or focused test.
+Set impact to "mechanical" when the reviewer likely should skim unless they own that area.
+Do not mark every file "wide"; a useful walkthrough separates broad blast-radius files from contained or mechanical files.
+The summary must be exactly two short sentences split into focus and skim: focus says where review matters most, skim says what can be skimmed.
+Do not invent bugs.
+Do not produce review comments.
+Do not say "looks good".
+Do not nitpick syntax, naming, style, formatting, or local cleanup unless it affects review leverage.
 Do not mention files that were not provided.
 Return JSON only.
 
@@ -141,6 +178,8 @@ const normalizeWalkthrough = (input, files) => {
   const pathSet = new Set(files.map((file) => file.path));
   const seen = new Set();
   const groups = [];
+  const actions = new Set(['review', 'scan', 'skim']);
+  const impacts = new Set(['wide', 'contained', 'mechanical']);
 
   for (const group of Array.isArray(input?.groups) ? input.groups : []) {
     const nextFiles = [];
@@ -153,19 +192,19 @@ const normalizeWalkthrough = (input, files) => {
 
       seen.add(path);
       nextFiles.push({
+        action: normalizeEnum(file?.action, actions, 'scan'),
+        context: cleanText(file?.context, 'Check the review-relevant context for this file.'),
+        impact: normalizeEnum(file?.impact, impacts, 'contained'),
         path,
-        reason: truncate(
-          oneLine(file?.reason, 'Review this file in this part of the change.'),
-          160,
-        ),
+        reason: cleanText(file?.reason, 'Review this file in this part of the change.'),
       });
     }
 
     if (nextFiles.length > 0) {
       groups.push({
         files: nextFiles,
-        reason: truncate(oneLine(group?.reason, 'These files are related.'), 180),
-        title: truncate(oneLine(group?.title, 'Walkthrough'), 80),
+        reason: cleanText(group?.reason, 'These files are related.'),
+        title: cleanText(group?.title, 'Walkthrough'),
       });
     }
   }
@@ -173,6 +212,9 @@ const normalizeWalkthrough = (input, files) => {
   const missingFiles = files
     .filter((file) => !seen.has(file.path))
     .map((file) => ({
+      action: 'scan',
+      context: 'Codex did not place this file; scan it after the ranked walkthrough.',
+      impact: 'contained',
       path: file.path,
       reason: 'Review after the primary walkthrough; Codex did not place this file.',
     }));
@@ -191,10 +233,13 @@ const normalizeWalkthrough = (input, files) => {
 
   return {
     groups,
-    summary: truncate(
-      oneLine(input?.summary, 'Review the changed files in walkthrough order.'),
-      240,
-    ),
+    summary: {
+      focus: cleanText(input?.summary?.focus, 'Review the highest-leverage files first.'),
+      skim: cleanText(
+        input?.summary?.skim,
+        'Skim low-value or mechanical files after core review.',
+      ),
+    },
     version: 1,
   };
 };
@@ -215,8 +260,10 @@ const runCodex = async (repoRoot, prompt) => {
       getCodexCommand(),
       [
         'exec',
+        '-m',
+        CODEX_MODEL,
         '-c',
-        'model_reasoning_effort="low"',
+        `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
         '--cd',
         repoRoot,
         '--sandbox',
@@ -294,7 +341,10 @@ const readWalkthrough = async (state) => {
       status: 'ready',
       walkthrough: {
         groups: [],
-        summary: 'No changed files.',
+        summary: {
+          focus: 'No changed files.',
+          skim: 'Nothing to skim.',
+        },
         version: 1,
       },
     };
@@ -325,5 +375,8 @@ const readWalkthrough = async (state) => {
 };
 
 module.exports = {
+  buildPrompt,
+  normalizeWalkthrough,
   readWalkthrough,
+  walkthroughSchema,
 };

@@ -68,6 +68,9 @@ export type CodiffLaunchOptions = {
 };
 
 export type WalkthroughFile = {
+  action: 'review' | 'scan' | 'skim';
+  context: string;
+  impact: 'wide' | 'contained' | 'mechanical';
   path: string;
   reason: string;
 };
@@ -80,7 +83,10 @@ export type WalkthroughGroup = {
 
 export type Walkthrough = {
   groups: ReadonlyArray<WalkthroughGroup>;
-  summary: string;
+  summary: {
+    focus: string;
+    skim: string;
+  };
   version: 1;
 };
 

@@ -27,8 +27,10 @@ import type {
   DiffSection,
   GitIdentity,
   GitFileStatus,
+  HistoryEntry,
   RepositoryState,
   Walkthrough,
+  ReviewSource,
 } from './types.ts';
 
 type ReviewAnnotationMetadata = {
@@ -61,16 +63,30 @@ type ReviewComment = {
   side: 'additions' | 'deletions';
 };
 
-type SidebarMode = 'tree' | 'walkthrough';
+type SidebarMode = 'tree' | 'walkthrough' | 'history';
 
 type WalkthroughNote = {
+  action: Walkthrough['groups'][number]['files'][number]['action'];
+  context: string;
   groupReason: string;
   groupTitle: string;
+  impact: Walkthrough['groups'][number]['files'][number]['impact'];
   order: number;
   reason: string;
 };
 
+type SourceSession = {
+  collapsed: Set<string>;
+  reviewComments: ReadonlyArray<ReviewComment>;
+  selectedPath: string | null;
+  viewed: Record<string, string>;
+  walkthrough: Walkthrough | null;
+  walkthroughError: string | null;
+};
+
 const emptyWalkthroughNotes = new Map<string, WalkthroughNote>();
+
+const HISTORY_LIMIT = 30;
 
 registerCustomTheme('Licht', async () => lichtTheme as never);
 registerCustomTheme('Dunkel', async () => dunkelTheme as never);
@@ -87,6 +103,26 @@ const sectionLabel: Record<DiffSection['kind'], string> = {
   commit: 'Commit',
   staged: 'Staged',
   unstaged: 'Unstaged',
+};
+
+const getSourceKey = (source: ReviewSource) =>
+  source.type === 'commit' ? `commit:${source.ref}` : 'working-tree';
+
+const getShortRef = (ref: string) => ref.slice(0, 7);
+
+const getSourceLabel = (source: ReviewSource) =>
+  source.type === 'commit' ? getShortRef(source.ref) : 'Uncommitted';
+
+const walkthroughActionLabel: Record<WalkthroughNote['action'], string> = {
+  review: 'Review',
+  scan: 'Scan',
+  skim: 'Skim',
+};
+
+const walkthroughImpactLabel: Record<WalkthroughNote['impact'], string> = {
+  contained: 'Contained',
+  mechanical: 'Mechanical',
+  wide: 'Wide impact',
 };
 
 const statusForTree: Record<
@@ -245,8 +281,11 @@ const getWalkthroughNotes = (walkthrough: Walkthrough | null) => {
     for (const file of group.files) {
       if (!notes.has(file.path)) {
         notes.set(file.path, {
+          action: file.action,
+          context: file.context,
           groupReason: group.reason,
           groupTitle: group.title,
+          impact: file.impact,
           order,
           reason: file.reason,
         });
@@ -917,31 +956,39 @@ export const shouldDiscardReviewCommentOnEscape = (
 ) => body.trim().length === 0 || confirmDiscard('Discard this review comment?');
 
 function Sidebar({
+  currentSource,
   files,
+  historyEntries,
   mode,
   onActivatePath,
   onModeChange,
   onSearchQueryChange,
   onSelectPath,
+  onSelectSource,
   searchQuery,
   selectedPath,
   walkthroughAvailable,
   walkthroughError,
   walkthroughLoading,
   walkthroughNotes,
+  walkthroughSummary,
 }: {
+  currentSource: ReviewSource;
   files: ReadonlyArray<ChangedFile>;
+  historyEntries: ReadonlyArray<HistoryEntry>;
   mode: SidebarMode;
   onActivatePath: (path: string) => void;
   onModeChange: (mode: SidebarMode) => void;
   onSearchQueryChange: (query: string) => void;
   onSelectPath: (path: string) => void;
+  onSelectSource: (source: ReviewSource) => void;
   searchQuery: string;
   selectedPath: string | null;
   walkthroughAvailable: boolean;
   walkthroughError: string | null;
   walkthroughLoading: boolean;
   walkthroughNotes: ReadonlyMap<string, WalkthroughNote>;
+  walkthroughSummary: Walkthrough['summary'] | null;
 }) {
   const allowSelectionScroll = useRef(false);
   const allowSelectionScrollTimer = useRef<number | null>(null);
@@ -1094,7 +1141,7 @@ function Sidebar({
           aria-label="Filter changed files"
           className="sidebar-search"
           onChange={(event) => onSearchQueryChange(event.currentTarget.value)}
-          placeholder="Filter files"
+          placeholder={mode === 'history' ? 'Filter history' : 'Filter files'}
           ref={searchInputRef}
           spellCheck={false}
           type="search"
@@ -1119,21 +1166,36 @@ function Sidebar({
         >
           Walkthrough
         </button>
+        <button
+          aria-selected={mode === 'history'}
+          onClick={() => onModeChange('history')}
+          role="tab"
+          type="button"
+        >
+          History
+        </button>
       </div>
-      {mode === 'walkthrough' && walkthroughAvailable ? (
+      {mode === 'history' ? (
+        <HistorySidebar
+          currentSource={currentSource}
+          entries={historyEntries}
+          onSelectSource={onSelectSource}
+          searchQuery={searchQuery}
+        />
+      ) : mode === 'walkthrough' && walkthroughAvailable ? (
         <WalkthroughSidebar
           files={files}
           onActivatePath={onActivatePath}
           selectedPath={selectedPath}
           walkthroughNotes={walkthroughNotes}
+          walkthroughSummary={walkthroughSummary}
         />
       ) : (
         <>
           {walkthroughLoading ? (
             <div className="sidebar-walkthrough-status-shell">
-              <div className="sidebar-walkthrough-status">
+              <div className="sidebar-walkthrough-status codex">
                 <strong>Waiting on Codex…</strong>
-                <span>Preparing walkthrough order.</span>
               </div>
             </div>
           ) : walkthroughError ? (
@@ -1153,16 +1215,85 @@ function Sidebar({
   );
 }
 
+function HistorySidebar({
+  currentSource,
+  entries,
+  onSelectSource,
+  searchQuery,
+}: {
+  currentSource: ReviewSource;
+  entries: ReadonlyArray<HistoryEntry>;
+  onSelectSource: (source: ReviewSource) => void;
+  searchQuery: string;
+}) {
+  const currentSourceKey = getSourceKey(currentSource);
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const rows = useMemo(
+    () => [
+      {
+        committedAt: null,
+        key: 'working-tree',
+        ref: '',
+        source: { type: 'working-tree' } satisfies ReviewSource,
+        subject: 'Uncommitted',
+      },
+      ...entries.map((entry) => ({
+        committedAt: entry.committedAt,
+        key: `commit:${entry.ref}`,
+        ref: entry.ref,
+        source: { ref: entry.ref, type: 'commit' } satisfies ReviewSource,
+        subject: entry.subject,
+      })),
+    ],
+    [entries],
+  );
+  const visibleRows = useMemo(
+    () =>
+      normalizedQuery
+        ? rows.filter(
+            (row) =>
+              row.subject.toLowerCase().includes(normalizedQuery) ||
+              row.ref.toLowerCase().includes(normalizedQuery),
+          )
+        : rows,
+    [normalizedQuery, rows],
+  );
+
+  return (
+    <div className="history-list">
+      {visibleRows.map((row) => {
+        const selected = row.key === currentSourceKey;
+        return (
+          <button
+            className={`history-entry${selected ? ' selected' : ''}`}
+            key={row.key}
+            onClick={() => onSelectSource(row.source)}
+            title={row.subject}
+            type="button"
+          >
+            <span className="history-entry-ref">
+              {row.source.type === 'commit' ? getShortRef(row.source.ref) : 'local'}
+            </span>
+            <span className="history-entry-subject">{row.subject}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function WalkthroughSidebar({
   files,
   onActivatePath,
   selectedPath,
   walkthroughNotes,
+  walkthroughSummary,
 }: {
   files: ReadonlyArray<ChangedFile>;
   onActivatePath: (path: string) => void;
   selectedPath: string | null;
   walkthroughNotes: ReadonlyMap<string, WalkthroughNote>;
+  walkthroughSummary: Walkthrough['summary'] | null;
 }) {
   const groups = useMemo(() => {
     const nextGroups: Array<{
@@ -1199,10 +1330,18 @@ function WalkthroughSidebar({
 
   return (
     <div className="walkthrough-list">
+      {walkthroughSummary ? (
+        <div className="walkthrough-summary">
+          <strong>Review focus</strong>
+          <span>{walkthroughSummary.focus}</span>
+          <span>{walkthroughSummary.skim}</span>
+        </div>
+      ) : null}
       {groups.map((group) => (
         <section className="walkthrough-group" key={group.key}>
-          <div className="walkthrough-group-header" title={group.reason}>
-            {group.title}
+          <div className="walkthrough-group-header" title={`${group.title}. ${group.reason}`}>
+            <span>{group.title}</span>
+            <small>{group.reason}</small>
           </div>
           {group.files.map(({ file, note }) => (
             <button
@@ -1213,8 +1352,13 @@ function WalkthroughSidebar({
               type="button"
             >
               <span className="walkthrough-file-path">{file.path}</span>
+              {note ? (
+                <span className="walkthrough-file-meta">
+                  {walkthroughImpactLabel[note.impact]} · {walkthroughActionLabel[note.action]}
+                </span>
+              ) : null}
               <span className="walkthrough-file-reason">
-                {note?.reason ?? 'Review this changed file.'}
+                {note?.context ?? note?.reason ?? 'Review this changed file.'}
               </span>
             </button>
           ))}
@@ -1226,14 +1370,17 @@ function WalkthroughSidebar({
 
 function CodeViewHeader({
   meta,
+  onOpenFile,
   onToggleCollapsed,
   onToggleViewed,
 }: {
   meta: CodeViewItemMetadata;
+  onOpenFile: (file: ChangedFile) => void;
   onToggleCollapsed: (file: ChangedFile, isCollapsed: boolean) => void;
   onToggleViewed: (file: ChangedFile, isViewed: boolean) => void;
 }) {
   const { file, isCollapsed, isSelected, isViewed, section, sectionCount, walkthroughNote } = meta;
+  const canOpenFile = file.status !== 'deleted';
 
   return (
     <div
@@ -1266,6 +1413,15 @@ function CodeViewHeader({
         ) : null}
       </button>
       <div className={`codiff-status-badge ${file.status}`}>{statusLabel[file.status]}</div>
+      <button
+        className="codiff-open-button"
+        disabled={!canOpenFile}
+        onClick={() => onOpenFile(file)}
+        title={canOpenFile ? 'Open file in editor' : 'Deleted files cannot be opened'}
+        type="button"
+      >
+        Open
+      </button>
       <button
         aria-pressed={isViewed}
         className={`codiff-viewed-button${isViewed ? ' active' : ''}`}
@@ -1392,6 +1548,7 @@ function ReviewCodeView({
   itemVersionByPath,
   onCreateComment,
   onDeleteComment,
+  onOpenFile,
   onSelectPathFromScroll,
   onToggleCollapsed,
   onToggleViewed,
@@ -1414,6 +1571,7 @@ function ReviewCodeView({
   itemVersionByPath: Readonly<Record<string, number>>;
   onCreateComment: (comment: Omit<ReviewComment, 'body' | 'id'>) => void;
   onDeleteComment: (commentId: string) => void;
+  onOpenFile: (file: ChangedFile) => void;
   onSelectPathFromScroll: (viewer: CodeViewInstance) => void;
   onToggleCollapsed: (file: ChangedFile, isCollapsed: boolean) => void;
   onToggleViewed: (file: ChangedFile, isViewed: boolean) => void;
@@ -1702,12 +1860,13 @@ function ReviewCodeView({
       return meta ? (
         <CodeViewHeader
           meta={meta}
+          onOpenFile={onOpenFile}
           onToggleCollapsed={onToggleCollapsed}
           onToggleViewed={onToggleViewed}
         />
       ) : null;
     },
-    [itemMetadata, onToggleCollapsed, onToggleViewed],
+    [itemMetadata, onOpenFile, onToggleCollapsed, onToggleViewed],
   );
 
   const renderAnnotation = useCallback(
@@ -1929,6 +2088,7 @@ export default function App() {
   const [focusCommentId, setFocusCommentId] = useState<string | null>(null);
   const [focusCommentRequest, setFocusCommentRequest] = useState(0);
   const [gitIdentity, setGitIdentity] = useState<GitIdentity | null>(null);
+  const [historyEntries, setHistoryEntries] = useState<ReadonlyArray<HistoryEntry>>([]);
   const [itemVersionByPath, setItemVersionByPath] = useState<Record<string, number>>({});
   const [localChangesDetected, setLocalChangesDetected] = useState(false);
   const [launchOptions, setLaunchOptions] = useState<CodiffLaunchOptions>({ walkthrough: false });
@@ -1936,6 +2096,7 @@ export default function App() {
   const [reviewComments, setReviewComments] = useState<ReadonlyArray<ReviewComment>>([]);
   const [scrollTarget, setScrollTarget] = useState<{ path: string; request: number } | null>(null);
   const [fileSearchQuery, setFileSearchQuery] = useState('');
+  const [historySearchQuery, setHistorySearchQuery] = useState('');
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('tree');
   const [state, setState] = useState<RepositoryState | null>(null);
@@ -1946,13 +2107,36 @@ export default function App() {
   const loadingSectionKeysRef = useRef<Set<string>>(new Set());
   const programmaticScrollPathRef = useRef<string | null>(null);
   const programmaticScrollTimerRef = useRef<number | null>(null);
+  const sourceSessionsRef = useRef<Map<string, SourceSession>>(new Map());
+  const stateRef = useRef<RepositoryState | null>(null);
+  const collapsedRef = useRef<Set<string>>(new Set());
   const reviewCommentsRef = useRef<ReadonlyArray<ReviewComment>>([]);
+  const selectedPathRef = useRef<string | null>(null);
+  const viewedRef = useRef<Record<string, string>>({});
+  const walkthroughRef = useRef<Walkthrough | null>(null);
+  const walkthroughErrorRef = useRef<string | null>(null);
 
   const bumpItemVersion = useCallback((path: string) => {
     setItemVersionByPath((current) => ({
       ...current,
       [path]: (current[path] ?? 0) + 1,
     }));
+  }, []);
+
+  const saveCurrentSourceSession = useCallback(() => {
+    const currentState = stateRef.current;
+    if (!currentState) {
+      return;
+    }
+
+    sourceSessionsRef.current.set(getSourceKey(currentState.source), {
+      collapsed: new Set(collapsedRef.current),
+      reviewComments: reviewCommentsRef.current,
+      selectedPath: selectedPathRef.current,
+      viewed: viewedRef.current,
+      walkthrough: walkthroughRef.current,
+      walkthroughError: walkthroughErrorRef.current,
+    });
   }, []);
 
   useEffect(() => {
@@ -1968,9 +2152,10 @@ export default function App() {
       setSidebarMode(nextLaunchOptions.walkthrough ? 'walkthrough' : 'tree');
       setWalkthroughLoading(nextLaunchOptions.walkthrough);
 
-      const [nextState, walkthroughResult] = await Promise.all([
+      const [nextState, walkthroughResult, history] = await Promise.all([
         window.codiff.getRepositoryState(),
         nextLaunchOptions.walkthrough ? window.codiff.getWalkthrough() : Promise.resolve(null),
+        window.codiff.getRepositoryHistory(HISTORY_LIMIT),
       ]);
 
       if (canceled) {
@@ -1994,11 +2179,13 @@ export default function App() {
         ...nextState,
         files: sortFiles(nextState.files),
       };
-      const nextViewed = readViewed(orderedState.root);
+      const nextViewed =
+        orderedState.source.type === 'working-tree' ? readViewed(orderedState.root) : {};
       const initialFiles = nextLaunchOptions.walkthrough
         ? orderFilesByWalkthrough(orderedState.files, nextWalkthrough)
         : orderedState.files;
 
+      setHistoryEntries(history.entries);
       setState(orderedState);
       setError(null);
       setCollapsed(
@@ -2078,6 +2265,7 @@ export default function App() {
     }
 
     let canceled = false;
+    const sourceKey = getSourceKey(state.source);
 
     for (const section of deferredSections) {
       const key = `${state.root}:${section.id}`;
@@ -2099,7 +2287,11 @@ export default function App() {
           }
 
           setState((current) => {
-            if (!current || current.root !== state.root) {
+            if (
+              !current ||
+              current.root !== state.root ||
+              getSourceKey(current.source) !== sourceKey
+            ) {
               return current;
             }
 
@@ -2122,7 +2314,11 @@ export default function App() {
         .catch(() => {
           if (!canceled) {
             setState((current) => {
-              if (!current || current.root !== state.root) {
+              if (
+                !current ||
+                current.root !== state.root ||
+                getSourceKey(current.source) !== sourceKey
+              ) {
                 return current;
               }
 
@@ -2187,6 +2383,7 @@ export default function App() {
 
     let canceled = false;
     let cursor = 0;
+    const sourceKey = getSourceKey(state.source);
 
     const loadNext = async (): Promise<void> => {
       if (canceled) {
@@ -2216,7 +2413,11 @@ export default function App() {
 
         if (!canceled) {
           setState((current) => {
-            if (!current || current.root !== state.root) {
+            if (
+              !current ||
+              current.root !== state.root ||
+              getSourceKey(current.source) !== sourceKey
+            ) {
               return current;
             }
 
@@ -2239,7 +2440,11 @@ export default function App() {
       } catch {
         if (!canceled) {
           setState((current) => {
-            if (!current || current.root !== state.root) {
+            if (
+              !current ||
+              current.root !== state.root ||
+              getSourceKey(current.source) !== sourceKey
+            ) {
               return current;
             }
 
@@ -2311,8 +2516,32 @@ export default function App() {
   );
 
   useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    collapsedRef.current = collapsed;
+  }, [collapsed]);
+
+  useEffect(() => {
     reviewCommentsRef.current = reviewComments;
   }, [reviewComments]);
+
+  useEffect(() => {
+    selectedPathRef.current = selectedPath;
+  }, [selectedPath]);
+
+  useEffect(() => {
+    viewedRef.current = viewed;
+  }, [viewed]);
+
+  useEffect(() => {
+    walkthroughRef.current = walkthrough;
+  }, [walkthrough]);
+
+  useEffect(() => {
+    walkthroughErrorRef.current = walkthroughError;
+  }, [walkthroughError]);
 
   const showWhitespace = preferences.showWhitespace;
   const walkthroughNotes = useMemo(() => getWalkthroughNotes(walkthrough), [walkthrough]);
@@ -2437,10 +2666,72 @@ export default function App() {
     }, 1200);
   }, []);
 
+  const selectSource = useCallback(
+    (source: ReviewSource) => {
+      const currentState = stateRef.current;
+      if (currentState && getSourceKey(currentState.source) === getSourceKey(source)) {
+        return;
+      }
+
+      saveCurrentSourceSession();
+      setError(null);
+      setFocusCommentId(null);
+      setFocusCommentRequest(0);
+      setDiffSearchQuery('');
+      setActiveDiffSearchMatchIndex(0);
+      setScrollTarget(null);
+
+      window.codiff
+        .getRepositoryState(source)
+        .then((nextState) => {
+          const orderedState = {
+            ...nextState,
+            files: sortFiles(nextState.files),
+          };
+          const session = sourceSessionsRef.current.get(getSourceKey(orderedState.source));
+          const nextViewed =
+            session?.viewed ??
+            (orderedState.source.type === 'working-tree' ? readViewed(orderedState.root) : {});
+          const nextSelectedPath =
+            session?.selectedPath &&
+            orderedState.files.some((file) => file.path === session.selectedPath)
+              ? session.selectedPath
+              : (orderedState.files[0]?.path ?? null);
+          const nextCollapsed =
+            session?.collapsed ??
+            new Set(
+              orderedState.files
+                .filter((file) => nextViewed[file.path] === file.fingerprint)
+                .map((file) => file.path),
+            );
+
+          setState(orderedState);
+          setCollapsed(new Set(nextCollapsed));
+          setItemVersionByPath({});
+          setReviewComments(session?.reviewComments ?? []);
+          setViewed(nextViewed);
+          setSelectedPath(nextSelectedPath);
+          setWalkthrough(session?.walkthrough ?? null);
+          setWalkthroughError(session?.walkthroughError ?? null);
+          setWalkthroughLoading(false);
+        })
+        .catch((error: unknown) => {
+          setError(error instanceof Error ? error.message : String(error));
+          setWalkthroughLoading(false);
+        });
+    },
+    [saveCurrentSourceSession],
+  );
+
   const changeSidebarMode = useCallback(
     (mode: SidebarMode) => {
       if (mode === 'tree') {
         setSidebarMode('tree');
+        return;
+      }
+
+      if (mode === 'history') {
+        setSidebarMode('history');
         return;
       }
 
@@ -2449,11 +2740,16 @@ export default function App() {
         return;
       }
 
+      const sourceKey = getSourceKey(state.source);
       setWalkthroughLoading(true);
       setWalkthroughError(null);
       window.codiff
         .getWalkthrough(state.source)
         .then((result) => {
+          if (getSourceKey(stateRef.current?.source ?? state.source) !== sourceKey) {
+            return;
+          }
+
           if (result.status === 'ready') {
             setWalkthrough(result.walkthrough);
             setSidebarMode('walkthrough');
@@ -2463,11 +2759,17 @@ export default function App() {
           }
         })
         .catch((error: unknown) => {
+          if (getSourceKey(stateRef.current?.source ?? state.source) !== sourceKey) {
+            return;
+          }
+
           setWalkthroughError(error instanceof Error ? error.message : String(error));
           setSidebarMode('tree');
         })
         .finally(() => {
-          setWalkthroughLoading(false);
+          if (getSourceKey(stateRef.current?.source ?? state.source) === sourceKey) {
+            setWalkthroughLoading(false);
+          }
         });
     },
     [state, walkthrough, walkthroughLoading],
@@ -2488,6 +2790,10 @@ export default function App() {
     },
     [bumpItemVersion],
   );
+
+  const openFile = useCallback((file: ChangedFile) => {
+    void window.codiff.openFile(file.path).catch(() => {});
+  }, []);
 
   const updateSelectedPathFromScroll = useCallback(
     (viewer: CodeViewInstance) => {
@@ -2545,7 +2851,9 @@ export default function App() {
         if (isViewed) {
           const next = { ...current };
           delete next[file.path];
-          writeViewed(state.root, next);
+          if (state.source.type === 'working-tree') {
+            writeViewed(state.root, next);
+          }
           return next;
         }
 
@@ -2553,7 +2861,9 @@ export default function App() {
           ...current,
           [file.path]: file.fingerprint,
         };
-        writeViewed(state.root, next);
+        if (state.source.type === 'working-tree') {
+          writeViewed(state.root, next);
+        }
         return next;
       });
 
@@ -2658,31 +2968,41 @@ export default function App() {
         <div className="sidebar-header">
           <div className="sidebar-path-row">
             <div className="sidebar-path" title={state.root}>
-              {compactPath(state.root)}
+              {compactPath(state.root)} · {getSourceLabel(state.source)}
             </div>
           </div>
         </div>
         <Sidebar
+          currentSource={state.source}
           files={visibleFiles}
+          historyEntries={historyEntries}
           mode={sidebarMode}
           onActivatePath={activatePath}
           onModeChange={changeSidebarMode}
-          onSearchQueryChange={setFileSearchQuery}
+          onSearchQueryChange={
+            sidebarMode === 'history' ? setHistorySearchQuery : setFileSearchQuery
+          }
           onSelectPath={selectPath}
-          searchQuery={fileSearchQuery}
+          onSelectSource={selectSource}
+          searchQuery={sidebarMode === 'history' ? historySearchQuery : fileSearchQuery}
           selectedPath={visibleSelectedPath}
           walkthroughAvailable={walkthrough != null}
           walkthroughError={walkthroughError}
           walkthroughLoading={walkthroughLoading}
           walkthroughNotes={walkthroughNotes}
+          walkthroughSummary={walkthrough?.summary ?? null}
         />
       </aside>
       <main className="review">
         {state.files.length === 0 ? (
           <div className="empty-state">
             <div className="empty-panel squircle">
-              <strong>No local changes</strong>
-              <span>{state.root}</span>
+              <strong>
+                {state.source.type === 'commit' ? 'No changes in commit' : 'No local changes'}
+              </strong>
+              <span>
+                {state.source.type === 'commit' ? getShortRef(state.source.ref) : state.root}
+              </span>
             </div>
           </div>
         ) : visibleFiles.length === 0 ? (
@@ -2709,6 +3029,7 @@ export default function App() {
             itemVersionByPath={itemVersionByPath}
             onCreateComment={createComment}
             onDeleteComment={deleteComment}
+            onOpenFile={openFile}
             onSelectPathFromScroll={updateSelectedPathFromScroll}
             onToggleCollapsed={toggleCollapsed}
             onToggleViewed={toggleViewed}
