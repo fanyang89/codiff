@@ -17,6 +17,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
+  type ReactNode,
 } from 'react';
 import dunkelTheme from './themes/dunkel.json' with { type: 'json' };
 import lichtTheme from './themes/licht.json' with { type: 'json' };
@@ -86,7 +87,7 @@ type SourceSession = {
 
 const emptyWalkthroughNotes = new Map<string, WalkthroughNote>();
 
-const HISTORY_LIMIT = 30;
+const HISTORY_PAGE_SIZE = 30;
 
 registerCustomTheme('Licht', async () => lichtTheme as never);
 registerCustomTheme('Dunkel', async () => dunkelTheme as never);
@@ -112,6 +113,32 @@ const getShortRef = (ref: string) => ref.slice(0, 7);
 
 const getSourceLabel = (source: ReviewSource) =>
   source.type === 'commit' ? getShortRef(source.ref) : 'Uncommitted';
+
+const renderInlineMarkdown = (text: string): ReactNode => {
+  const nodes: Array<ReactNode> = [];
+  const pattern = /`([^`\n]+)`/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text))) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    nodes.push(
+      <code className="walkthrough-inline-code" key={`${match.index}:${match[1]}`}>
+        {match[1]}
+      </code>,
+    );
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes.length > 0 ? nodes : text;
+};
 
 const walkthroughActionLabel: Record<WalkthroughNote['action'], string> = {
   review: 'Review',
@@ -959,8 +986,11 @@ function Sidebar({
   currentSource,
   files,
   historyEntries,
+  historyHasMore,
+  historyLoading,
   mode,
   onActivatePath,
+  onLoadMoreHistory,
   onModeChange,
   onSearchQueryChange,
   onSelectPath,
@@ -972,12 +1002,16 @@ function Sidebar({
   walkthroughLoading,
   walkthroughNotes,
   walkthroughSummary,
+  walkthroughUnread,
 }: {
   currentSource: ReviewSource;
   files: ReadonlyArray<ChangedFile>;
   historyEntries: ReadonlyArray<HistoryEntry>;
+  historyHasMore: boolean;
+  historyLoading: boolean;
   mode: SidebarMode;
   onActivatePath: (path: string) => void;
+  onLoadMoreHistory: () => void;
   onModeChange: (mode: SidebarMode) => void;
   onSearchQueryChange: (query: string) => void;
   onSelectPath: (path: string) => void;
@@ -989,6 +1023,7 @@ function Sidebar({
   walkthroughLoading: boolean;
   walkthroughNotes: ReadonlyMap<string, WalkthroughNote>;
   walkthroughSummary: Walkthrough['summary'] | null;
+  walkthroughUnread: boolean;
 }) {
   const allowSelectionScroll = useRef(false);
   const allowSelectionScrollTimer = useRef<number | null>(null);
@@ -1159,12 +1194,12 @@ function Sidebar({
         </button>
         <button
           aria-selected={mode === 'walkthrough'}
-          disabled={walkthroughLoading}
           onClick={() => onModeChange('walkthrough')}
           role="tab"
           type="button"
         >
-          Walkthrough
+          <span>Walkthrough</span>
+          {walkthroughUnread ? <span aria-hidden className="sidebar-tab-dot" /> : null}
         </button>
         <button
           aria-selected={mode === 'history'}
@@ -1179,6 +1214,9 @@ function Sidebar({
         <HistorySidebar
           currentSource={currentSource}
           entries={historyEntries}
+          hasMore={historyHasMore}
+          loading={historyLoading}
+          onLoadMore={onLoadMoreHistory}
           onSelectSource={onSelectSource}
           searchQuery={searchQuery}
         />
@@ -1190,7 +1228,7 @@ function Sidebar({
           walkthroughNotes={walkthroughNotes}
           walkthroughSummary={walkthroughSummary}
         />
-      ) : (
+      ) : mode === 'walkthrough' ? (
         <>
           {walkthroughLoading ? (
             <div className="sidebar-walkthrough-status-shell">
@@ -1210,6 +1248,10 @@ function Sidebar({
             </div>
           ) : null}
         </>
+      ) : (
+        <div className="file-tree-shell" ref={treeHostRef}>
+          <FileTree className="file-tree" model={model} onClick={handleTreeClick} />
+        </div>
       )}
     </>
   );
@@ -1218,16 +1260,23 @@ function Sidebar({
 function HistorySidebar({
   currentSource,
   entries,
+  hasMore,
+  loading,
+  onLoadMore,
   onSelectSource,
   searchQuery,
 }: {
   currentSource: ReviewSource;
   entries: ReadonlyArray<HistoryEntry>;
+  hasMore: boolean;
+  loading: boolean;
+  onLoadMore: () => void;
   onSelectSource: (source: ReviewSource) => void;
   searchQuery: string;
 }) {
   const currentSourceKey = getSourceKey(currentSource);
   const normalizedQuery = searchQuery.trim().toLowerCase();
+  const listRef = useRef<HTMLDivElement>(null);
   const rows = useMemo(
     () => [
       {
@@ -1258,9 +1307,19 @@ function HistorySidebar({
         : rows,
     [normalizedQuery, rows],
   );
+  const maybeLoadMore = useCallback(() => {
+    const element = listRef.current;
+    if (!element || loading || !hasMore || normalizedQuery) {
+      return;
+    }
+
+    if (element.scrollHeight - element.scrollTop - element.clientHeight < 120) {
+      onLoadMore();
+    }
+  }, [hasMore, loading, normalizedQuery, onLoadMore]);
 
   return (
-    <div className="history-list">
+    <div className="history-list" onScroll={maybeLoadMore} ref={listRef}>
       {visibleRows.map((row) => {
         const selected = row.key === currentSourceKey;
         return (
@@ -1278,6 +1337,11 @@ function HistorySidebar({
           </button>
         );
       })}
+      {loading ? (
+        <div className="history-loading">
+          <span>Loading history…</span>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1332,16 +1396,16 @@ function WalkthroughSidebar({
     <div className="walkthrough-list">
       {walkthroughSummary ? (
         <div className="walkthrough-summary">
-          <strong>Review focus</strong>
-          <span>{walkthroughSummary.focus}</span>
-          <span>{walkthroughSummary.skim}</span>
+          <strong>Review Focus</strong>
+          <span>{renderInlineMarkdown(walkthroughSummary.focus)}</span>
+          <span>{renderInlineMarkdown(walkthroughSummary.skim)}</span>
         </div>
       ) : null}
       {groups.map((group) => (
         <section className="walkthrough-group" key={group.key}>
           <div className="walkthrough-group-header" title={`${group.title}. ${group.reason}`}>
             <span>{group.title}</span>
-            <small>{group.reason}</small>
+            <small>{renderInlineMarkdown(group.reason)}</small>
           </div>
           {group.files.map(({ file, note }) => (
             <button
@@ -1358,7 +1422,7 @@ function WalkthroughSidebar({
                 </span>
               ) : null}
               <span className="walkthrough-file-reason">
-                {note?.context ?? note?.reason ?? 'Review this changed file.'}
+                {renderInlineMarkdown(note?.context ?? note?.reason ?? 'Review this changed file.')}
               </span>
             </button>
           ))}
@@ -2089,6 +2153,9 @@ export default function App() {
   const [focusCommentRequest, setFocusCommentRequest] = useState(0);
   const [gitIdentity, setGitIdentity] = useState<GitIdentity | null>(null);
   const [historyEntries, setHistoryEntries] = useState<ReadonlyArray<HistoryEntry>>([]);
+  const [historyHasMore, setHistoryHasMore] = useState(true);
+  const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE_SIZE);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [itemVersionByPath, setItemVersionByPath] = useState<Record<string, number>>({});
   const [localChangesDetected, setLocalChangesDetected] = useState(false);
   const [launchOptions, setLaunchOptions] = useState<CodiffLaunchOptions>({ walkthrough: false });
@@ -2097,6 +2164,7 @@ export default function App() {
   const [scrollTarget, setScrollTarget] = useState<{ path: string; request: number } | null>(null);
   const [fileSearchQuery, setFileSearchQuery] = useState('');
   const [historySearchQuery, setHistorySearchQuery] = useState('');
+  const [pendingSource, setPendingSource] = useState<ReviewSource | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('tree');
   const [state, setState] = useState<RepositoryState | null>(null);
@@ -2104,6 +2172,8 @@ export default function App() {
   const [walkthrough, setWalkthrough] = useState<Walkthrough | null>(null);
   const [walkthroughError, setWalkthroughError] = useState<string | null>(null);
   const [walkthroughLoading, setWalkthroughLoading] = useState(false);
+  const [walkthroughUnread, setWalkthroughUnread] = useState(false);
+  const historyRequestRef = useRef(0);
   const loadingSectionKeysRef = useRef<Set<string>>(new Set());
   const programmaticScrollPathRef = useRef<string | null>(null);
   const programmaticScrollTimerRef = useRef<number | null>(null);
@@ -2112,6 +2182,8 @@ export default function App() {
   const collapsedRef = useRef<Set<string>>(new Set());
   const reviewCommentsRef = useRef<ReadonlyArray<ReviewComment>>([]);
   const selectedPathRef = useRef<string | null>(null);
+  const sidebarModeRef = useRef<SidebarMode>('tree');
+  const sourceRequestRef = useRef(0);
   const viewedRef = useRef<Record<string, string>>({});
   const walkthroughRef = useRef<Walkthrough | null>(null);
   const walkthroughErrorRef = useRef<string | null>(null);
@@ -2148,15 +2220,35 @@ export default function App() {
         return;
       }
 
-      setLaunchOptions(nextLaunchOptions);
-      setSidebarMode(nextLaunchOptions.walkthrough ? 'walkthrough' : 'tree');
-      setWalkthroughLoading(nextLaunchOptions.walkthrough);
-
-      const [nextState, walkthroughResult, history] = await Promise.all([
+      const [nextState, history] = await Promise.all([
         window.codiff.getRepositoryState(),
-        nextLaunchOptions.walkthrough ? window.codiff.getWalkthrough() : Promise.resolve(null),
-        window.codiff.getRepositoryHistory(HISTORY_LIMIT),
+        window.codiff.getRepositoryHistory(HISTORY_PAGE_SIZE),
       ]);
+
+      if (canceled) {
+        return;
+      }
+
+      const orderedState = {
+        ...nextState,
+        files: sortFiles(nextState.files),
+      };
+      const shouldLoadWalkthrough = nextLaunchOptions.walkthrough && orderedState.files.length > 0;
+      const shouldStartInHistory =
+        orderedState.source.type === 'working-tree' && orderedState.files.length === 0;
+
+      setLaunchOptions({
+        ...nextLaunchOptions,
+        walkthrough: shouldLoadWalkthrough,
+      });
+      setSidebarMode(
+        shouldLoadWalkthrough ? 'walkthrough' : shouldStartInHistory ? 'history' : 'tree',
+      );
+      setWalkthroughLoading(shouldLoadWalkthrough);
+
+      const walkthroughResult = shouldLoadWalkthrough
+        ? await window.codiff.getWalkthrough(orderedState.source)
+        : null;
 
       if (canceled) {
         return;
@@ -2175,10 +2267,6 @@ export default function App() {
       setWalkthrough(nextWalkthrough);
       setWalkthroughLoading(false);
 
-      const orderedState = {
-        ...nextState,
-        files: sortFiles(nextState.files),
-      };
       const nextViewed =
         orderedState.source.type === 'working-tree' ? readViewed(orderedState.root) : {};
       const initialFiles = nextLaunchOptions.walkthrough
@@ -2186,6 +2274,8 @@ export default function App() {
         : orderedState.files;
 
       setHistoryEntries(history.entries);
+      setHistoryHasMore(history.entries.length >= HISTORY_PAGE_SIZE);
+      setHistoryLimit(HISTORY_PAGE_SIZE);
       setState(orderedState);
       setError(null);
       setCollapsed(
@@ -2520,6 +2610,10 @@ export default function App() {
   }, [state]);
 
   useEffect(() => {
+    sidebarModeRef.current = sidebarMode;
+  }, [sidebarMode]);
+
+  useEffect(() => {
     collapsedRef.current = collapsed;
   }, [collapsed]);
 
@@ -2630,6 +2724,38 @@ export default function App() {
     setActiveDiffSearchMatchIndex(0);
   }, []);
 
+  const loadMoreHistory = useCallback(() => {
+    if (historyLoading || !historyHasMore) {
+      return;
+    }
+
+    const nextLimit = historyLimit + HISTORY_PAGE_SIZE;
+    const request = historyRequestRef.current + 1;
+    historyRequestRef.current = request;
+    setHistoryLoading(true);
+    window.codiff
+      .getRepositoryHistory(nextLimit)
+      .then((history) => {
+        if (historyRequestRef.current !== request) {
+          return;
+        }
+
+        setHistoryEntries(history.entries);
+        setHistoryLimit(nextLimit);
+        setHistoryHasMore(history.entries.length >= nextLimit);
+      })
+      .catch(() => {
+        if (historyRequestRef.current === request) {
+          setHistoryHasMore(false);
+        }
+      })
+      .finally(() => {
+        if (historyRequestRef.current === request) {
+          setHistoryLoading(false);
+        }
+      });
+  }, [historyHasMore, historyLimit, historyLoading]);
+
   const moveDiffSearchMatch = useCallback(
     (direction: 1 | -1) => {
       setDiffSearchVisible(true);
@@ -2669,11 +2795,16 @@ export default function App() {
   const selectSource = useCallback(
     (source: ReviewSource) => {
       const currentState = stateRef.current;
-      if (currentState && getSourceKey(currentState.source) === getSourceKey(source)) {
+      const sourceKey = getSourceKey(source);
+      const currentDisplayKey = getSourceKey(pendingSource ?? currentState?.source ?? source);
+      if (currentDisplayKey === sourceKey) {
         return;
       }
 
       saveCurrentSourceSession();
+      const request = sourceRequestRef.current + 1;
+      sourceRequestRef.current = request;
+      setPendingSource(source);
       setError(null);
       setFocusCommentId(null);
       setFocusCommentRequest(0);
@@ -2684,6 +2815,10 @@ export default function App() {
       window.codiff
         .getRepositoryState(source)
         .then((nextState) => {
+          if (sourceRequestRef.current !== request) {
+            return;
+          }
+
           const orderedState = {
             ...nextState,
             files: sortFiles(nextState.files),
@@ -2714,13 +2849,18 @@ export default function App() {
           setWalkthrough(session?.walkthrough ?? null);
           setWalkthroughError(session?.walkthroughError ?? null);
           setWalkthroughLoading(false);
+          setWalkthroughUnread(false);
+          setPendingSource(null);
         })
         .catch((error: unknown) => {
-          setError(error instanceof Error ? error.message : String(error));
-          setWalkthroughLoading(false);
+          if (sourceRequestRef.current === request) {
+            setError(error instanceof Error ? error.message : String(error));
+            setWalkthroughLoading(false);
+            setPendingSource(null);
+          }
         });
     },
-    [saveCurrentSourceSession],
+    [pendingSource, saveCurrentSourceSession],
   );
 
   const changeSidebarMode = useCallback(
@@ -2736,7 +2876,14 @@ export default function App() {
       }
 
       setSidebarMode('walkthrough');
+      setWalkthroughUnread(false);
       if (walkthrough || walkthroughLoading || !state) {
+        return;
+      }
+      if (state.files.length === 0) {
+        setWalkthrough(null);
+        setWalkthroughError(null);
+        setWalkthroughLoading(false);
         return;
       }
 
@@ -2752,10 +2899,16 @@ export default function App() {
 
           if (result.status === 'ready') {
             setWalkthrough(result.walkthrough);
-            setSidebarMode('walkthrough');
+            if (sidebarModeRef.current === 'walkthrough') {
+              setSidebarMode('walkthrough');
+            } else {
+              setWalkthroughUnread(true);
+            }
           } else {
             setWalkthroughError(result.reason);
-            setSidebarMode('tree');
+            if (sidebarModeRef.current === 'walkthrough') {
+              setSidebarMode('tree');
+            }
           }
         })
         .catch((error: unknown) => {
@@ -2764,7 +2917,9 @@ export default function App() {
           }
 
           setWalkthroughError(error instanceof Error ? error.message : String(error));
-          setSidebarMode('tree');
+          if (sidebarModeRef.current === 'walkthrough') {
+            setSidebarMode('tree');
+          }
         })
         .finally(() => {
           if (getSourceKey(stateRef.current?.source ?? state.source) === sourceKey) {
@@ -2947,7 +3102,9 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <RepositoryChangeBanner visible={localChangesDetected} />
+      <RepositoryChangeBanner
+        visible={localChangesDetected && (pendingSource ?? state.source).type === 'working-tree'}
+      />
       <DiffSearchPanel
         activeIndex={effectiveActiveDiffSearchMatchIndex}
         focusRequest={diffSearchFocusRequest}
@@ -2968,16 +3125,20 @@ export default function App() {
         <div className="sidebar-header">
           <div className="sidebar-path-row">
             <div className="sidebar-path" title={state.root}>
-              {compactPath(state.root)} · {getSourceLabel(state.source)}
+              {compactPath(state.root)}
+              {state.source.type === 'commit' ? ` · ${getSourceLabel(state.source)}` : ''}
             </div>
           </div>
         </div>
         <Sidebar
-          currentSource={state.source}
+          currentSource={pendingSource ?? state.source}
           files={visibleFiles}
           historyEntries={historyEntries}
+          historyHasMore={historyHasMore}
+          historyLoading={historyLoading}
           mode={sidebarMode}
           onActivatePath={activatePath}
+          onLoadMoreHistory={loadMoreHistory}
           onModeChange={changeSidebarMode}
           onSearchQueryChange={
             sidebarMode === 'history' ? setHistorySearchQuery : setFileSearchQuery
@@ -2991,6 +3152,7 @@ export default function App() {
           walkthroughLoading={walkthroughLoading}
           walkthroughNotes={walkthroughNotes}
           walkthroughSummary={walkthrough?.summary ?? null}
+          walkthroughUnread={walkthroughUnread}
         />
       </aside>
       <main className="review">
