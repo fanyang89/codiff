@@ -189,10 +189,19 @@ const canSubmitCommentToGitHub = (comment: ReviewComment) =>
   comment.body.trim().length > 0 &&
   comment.githubSubmit?.status !== 'submitting';
 
-function MarkdownPreview({ contents }: { contents: string }) {
+const getAddedLinesDigest = (lines: ReadonlySet<number>) =>
+  lines.size > 0 ? [...lines].join(',') : '';
+
+function MarkdownPreview({
+  addedLines,
+  contents,
+}: {
+  addedLines: ReadonlySet<number>;
+  contents: string;
+}) {
   return (
     <div className="codiff-markdown-preview">
-      {renderMarkdown(contents, { highlightCode: true })}
+      {renderMarkdown(contents, { addedLines, highlightCode: true })}
     </div>
   );
 }
@@ -467,8 +476,8 @@ export function ReviewCodeView({
 
       for (const [index, { fileDiff, section }] of sections.entries()) {
         const id = getItemId(section);
-        const markdownPreviewContents = getMarkdownPreviewContents(file, section, fileDiff);
-        const canRenderMarkdown = markdownPreviewContents != null;
+        const markdownPreview = getMarkdownPreviewContents(file, section, fileDiff);
+        const canRenderMarkdown = markdownPreview != null;
         const isMarkdownPreview = canRenderMarkdown && markdownPreviewSections.has(section.id);
         const annotationMap = new Map<string, DiffLineAnnotation<ReviewAnnotationMetadata>>();
         for (const comment of commentsBySection.get(section.id) ?? []) {
@@ -508,12 +517,14 @@ export function ReviewCodeView({
         });
         nextFirstItemByPath.set(file.path, nextFirstItemByPath.get(file.path) ?? id);
         if (isMarkdownPreview) {
+          const markdownPreviewAddedLinesDigest = getAddedLinesDigest(markdownPreview.addedLines);
           nextItems.push({
             annotations: [
               {
                 lineNumber: 1,
                 metadata: {
-                  contents: markdownPreviewContents,
+                  addedLines: markdownPreview.addedLines,
+                  contents: markdownPreview.contents,
                   path: file.path,
                   type: 'markdown-preview',
                 },
@@ -522,8 +533,8 @@ export function ReviewCodeView({
             collapsed: isCollapsed,
             file: {
               cacheKey: `markdown-preview:${section.newFile?.cacheKey ?? file.fingerprint}:${
-                markdownPreviewContents.length
-              }`,
+                markdownPreview.contents.length
+              }:${markdownPreviewAddedLinesDigest}`,
               contents: ' ',
               lang: 'text',
               name: file.path,
@@ -535,7 +546,9 @@ export function ReviewCodeView({
                 isCollapsed ? 'collapsed' : 'open'
               }:${isViewed ? 'viewed' : 'pending'}:${index}:${
                 selectedPath === file.path ? 'selected' : 'idle'
-              }:${walkthroughNotes.get(file.path)?.reason ?? ''}:${markdownPreviewContents.length}`,
+              }:${walkthroughNotes.get(file.path)?.reason ?? ''}:${markdownPreview.contents.length}:${
+                markdownPreviewAddedLinesDigest
+              }`,
             ),
           });
           continue;
@@ -860,7 +873,12 @@ export function ReviewCodeView({
       item: CodeViewItem<ReviewAnnotationMetadata>,
     ) => {
       if (annotation.metadata.type === 'markdown-preview') {
-        return <MarkdownPreview contents={annotation.metadata.contents} />;
+        return (
+          <MarkdownPreview
+            addedLines={annotation.metadata.addedLines}
+            contents={annotation.metadata.contents}
+          />
+        );
       }
 
       return item.type === 'diff' ? (

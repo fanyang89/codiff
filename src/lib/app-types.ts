@@ -13,6 +13,7 @@ export type ReviewCommentAnnotationMetadata = {
 };
 
 type MarkdownPreviewAnnotationMetadata = {
+  addedLines: ReadonlySet<number>;
   contents: string;
   path: string;
   type: 'markdown-preview';

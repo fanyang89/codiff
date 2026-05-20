@@ -101,15 +101,17 @@ const getMarkdownFenceFileName = (info: string) => {
 };
 
 function MarkdownCodeBlock({
+  added,
   code,
   highlighted,
   info,
 }: {
+  added: boolean;
   code: string;
   highlighted: boolean;
   info: string;
 }) {
-  return highlighted ? (
+  const codeBlock = highlighted ? (
     <CodeFile
       className="codiff-markdown-code-block"
       disableWorkerPool={false}
@@ -125,19 +127,99 @@ function MarkdownCodeBlock({
       <code>{code}</code>
     </pre>
   );
+
+  return added ? (
+    <div className="codiff-markdown-code-added codiff-markdown-added">{codeBlock}</div>
+  ) : (
+    codeBlock
+  );
 }
+
+const getLineStarts = (text: string) => {
+  const starts = [0];
+
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === '\n') {
+      starts.push(index + 1);
+    }
+  }
+
+  return starts;
+};
+
+const getLineNumberAtIndex = (lineStarts: ReadonlyArray<number>, index: number) => {
+  let low = 0;
+  let high = lineStarts.length - 1;
+
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const start = lineStarts[middle] ?? 0;
+    const nextStart = lineStarts[middle + 1] ?? Number.POSITIVE_INFINITY;
+
+    if (index < start) {
+      high = middle - 1;
+    } else if (index >= nextStart) {
+      low = middle + 1;
+    } else {
+      return middle + 1;
+    }
+  }
+
+  return lineStarts.length;
+};
+
+const hasAddedLineInRange = (
+  addedLines: ReadonlySet<number> | undefined,
+  startLine: number,
+  endLine: number,
+) => {
+  if (!addedLines?.size) {
+    return false;
+  }
+
+  for (const line of addedLines) {
+    if (line >= startLine && line <= endLine) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const getBlockClassName = (added: boolean) => (added ? 'codiff-markdown-added' : undefined);
 
 export const renderMarkdown = (
   text: string,
-  { highlightCode = false }: { highlightCode?: boolean } = {},
+  {
+    addedLines,
+    highlightCode = false,
+  }: { addedLines?: ReadonlySet<number>; highlightCode?: boolean } = {},
 ): ReactNode => {
   const blocks: Array<ReactNode> = [];
-  const renderTextBlocks = (value: string, keyPrefix: string) => {
-    for (const [index, block] of value
-      .split(/\n{2,}/)
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .entries()) {
+  const lineStarts = getLineStarts(text);
+  const isAddedSourceRange = (startIndex: number, endIndex: number) =>
+    hasAddedLineInRange(
+      addedLines,
+      getLineNumberAtIndex(lineStarts, startIndex),
+      getLineNumberAtIndex(lineStarts, Math.max(startIndex, endIndex)),
+    );
+
+  const renderTextBlocks = (value: string, keyPrefix: string, sourceOffset: number) => {
+    let blockStart = 0;
+    let index = 0;
+    const separatorPattern = /\n{2,}/g;
+    let separator: RegExpExecArray | null;
+
+    const renderTextBlock = (rawBlock: string, rawBlockOffset: number) => {
+      const block = rawBlock.trim();
+      if (!block) {
+        return;
+      }
+
+      const leadingWhitespaceLength = rawBlock.search(/\S/);
+      const blockStartIndex = rawBlockOffset + Math.max(0, leadingWhitespaceLength);
+      const blockEndIndex = blockStartIndex + block.length - 1;
+      const className = getBlockClassName(isAddedSourceRange(blockStartIndex, blockEndIndex));
       const lines = block.split('\n');
       const heading = lines.length === 1 ? lines[0]?.match(/^(#{1,6})\s+(.+)$/) : null;
       const listItems = lines
@@ -155,27 +237,51 @@ export const renderMarkdown = (
         const key = `${keyPrefix}:h:${index}`;
         switch (heading[1].length) {
           case 1:
-            blocks.push(<h1 key={key}>{headingContent}</h1>);
+            blocks.push(
+              <h1 className={className} key={key}>
+                {headingContent}
+              </h1>,
+            );
             break;
           case 2:
-            blocks.push(<h2 key={key}>{headingContent}</h2>);
+            blocks.push(
+              <h2 className={className} key={key}>
+                {headingContent}
+              </h2>,
+            );
             break;
           case 3:
-            blocks.push(<h3 key={key}>{headingContent}</h3>);
+            blocks.push(
+              <h3 className={className} key={key}>
+                {headingContent}
+              </h3>,
+            );
             break;
           case 4:
-            blocks.push(<h4 key={key}>{headingContent}</h4>);
+            blocks.push(
+              <h4 className={className} key={key}>
+                {headingContent}
+              </h4>,
+            );
             break;
           case 5:
-            blocks.push(<h5 key={key}>{headingContent}</h5>);
+            blocks.push(
+              <h5 className={className} key={key}>
+                {headingContent}
+              </h5>,
+            );
             break;
           default:
-            blocks.push(<h6 key={key}>{headingContent}</h6>);
+            blocks.push(
+              <h6 className={className} key={key}>
+                {headingContent}
+              </h6>,
+            );
             break;
         }
       } else if (listItems.length === lines.length) {
         blocks.push(
-          <ul key={`${keyPrefix}:list:${index}`}>
+          <ul className={className} key={`${keyPrefix}:list:${index}`}>
             {listItems.map((line, lineIndex) => (
               <li key={`${keyPrefix}:list:${index}:${lineIndex}`}>{renderInlineMarkdown(line)}</li>
             ))}
@@ -183,7 +289,7 @@ export const renderMarkdown = (
         );
       } else if (orderedListItems.length === lines.length) {
         blocks.push(
-          <ol key={`${keyPrefix}:ordered-list:${index}`}>
+          <ol className={className} key={`${keyPrefix}:ordered-list:${index}`}>
             {orderedListItems.map((line, lineIndex) => (
               <li key={`${keyPrefix}:ordered-list:${index}:${lineIndex}`}>
                 {renderInlineMarkdown(line)}
@@ -193,7 +299,7 @@ export const renderMarkdown = (
         );
       } else if (quoteLines.length === lines.length) {
         blocks.push(
-          <blockquote key={`${keyPrefix}:quote:${index}`}>
+          <blockquote className={className} key={`${keyPrefix}:quote:${index}`}>
             {quoteLines.map((line, lineIndex) => (
               <span key={`${keyPrefix}:quote:${index}:${lineIndex}`}>
                 {lineIndex > 0 ? <br /> : null}
@@ -202,13 +308,26 @@ export const renderMarkdown = (
             ))}
           </blockquote>,
         );
-      } else if (lines.length === 1 && /^-{3,}$/.test(lines[0].trim())) {
-        blocks.push(<hr key={`${keyPrefix}:hr:${index}`} />);
+      } else if (lines.length === 1 && /^(?:-{3,}|\*{3,}|_{3,})$/.test(lines[0].trim())) {
+        blocks.push(<hr className={className} key={`${keyPrefix}:hr:${index}`} />);
       } else {
         const paragraphText = lines.map((line) => line.trim()).join(' ');
-        blocks.push(<p key={`${keyPrefix}:p:${index}`}>{renderInlineMarkdown(paragraphText)}</p>);
+        blocks.push(
+          <p className={className} key={`${keyPrefix}:p:${index}`}>
+            {renderInlineMarkdown(paragraphText)}
+          </p>,
+        );
       }
+
+      index += 1;
+    };
+
+    while ((separator = separatorPattern.exec(value))) {
+      renderTextBlock(value.slice(blockStart, separator.index), sourceOffset + blockStart);
+      blockStart = separator.index + separator[0].length;
     }
+
+    renderTextBlock(value.slice(blockStart), sourceOffset + blockStart);
   };
 
   const fencePattern = /```([^\n`]*)\n([\s\S]*?)```/g;
@@ -217,11 +336,12 @@ export const renderMarkdown = (
 
   while ((match = fencePattern.exec(text))) {
     if (match.index > lastIndex) {
-      renderTextBlocks(text.slice(lastIndex, match.index), `${lastIndex}`);
+      renderTextBlocks(text.slice(lastIndex, match.index), `${lastIndex}`, lastIndex);
     }
 
     blocks.push(
       <MarkdownCodeBlock
+        added={isAddedSourceRange(match.index, fencePattern.lastIndex - 1)}
         code={match[2]}
         highlighted={highlightCode}
         info={match[1]}
@@ -232,7 +352,7 @@ export const renderMarkdown = (
   }
 
   if (lastIndex < text.length) {
-    renderTextBlocks(text.slice(lastIndex), `${lastIndex}`);
+    renderTextBlocks(text.slice(lastIndex), `${lastIndex}`, lastIndex);
   }
 
   return blocks.length > 0 ? blocks : renderInlineMarkdown(text);

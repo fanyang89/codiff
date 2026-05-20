@@ -843,9 +843,35 @@
   margin: 0 0 14px;
 }
 
+.codiff-markdown-preview .codiff-markdown-added {
+  border-radius: 0 6px 6px 0;
+  position: relative;
+}
+
+.codiff-markdown-preview .codiff-markdown-added::before {
+  background: var(--diff-addition);
+  border-radius: 0;
+  bottom: 0;
+  content: '';
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 3px;
+}
+
+.codiff-markdown-preview :is(h1, h2, h3, h4, h5, h6, p, blockquote, pre).codiff-markdown-added {
+  margin-inline: -10px;
+  padding: 6px 10px 6px 14px;
+}
+
 .codiff-markdown-preview ol,
 .codiff-markdown-preview ul {
   padding-left: 22px;
+}
+
+.codiff-markdown-preview :is(ol, ul).codiff-markdown-added {
+  margin-inline: -10px;
+  padding: 6px 10px 6px 34px;
 }
 
 .codiff-markdown-preview li + li {
@@ -882,6 +908,11 @@
   overflow: clip;
 }
 
+.codiff-markdown-preview .codiff-markdown-code-added {
+  margin-inline: -10px;
+  padding-inline: 10px;
+}
+
 .codiff-markdown-preview code {
   font-family: var(--font-mono);
 }
@@ -890,6 +921,11 @@
   border: 0;
   border-top: 1px solid var(--file-border);
   margin: 20px 0;
+}
+
+.codiff-markdown-preview hr.codiff-markdown-added {
+  margin-inline: -10px;
+  padding: 6px 10px;
 }
 
 .codiff-file-header {
