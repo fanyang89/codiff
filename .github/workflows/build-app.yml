@@ -102,7 +102,7 @@ jobs:
 
   build-windows:
     needs: create-release
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 60
     env:
       CODIFF_SKIP_SQUIRREL: '1'
@@ -136,33 +136,33 @@ jobs:
         run: pnpm exec vp build
 
       - name: Build Windows App
-        shell: bash
         timeout-minutes: 45
         env:
           DEBUG: electron-forge:*,electron-packager,@electron/get:*
           ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
         run: |
-          rm -rf ./out
+          if (Test-Path out) {
+            Remove-Item -Recurse -Force out
+          }
 
           pnpm exec electron-forge make --platform=win32 --arch=x64
-          test -d ./out
+
+          if (!(Test-Path out)) {
+            throw 'The out directory was not created.'
+          }
 
       - name: Attach Windows App to Release
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          shopt -s nullglob
+          $assets = @(Get-ChildItem -Path out/make/zip/win32/x64/*.zip -ErrorAction SilentlyContinue)
 
-          assets=(
-            out/make/zip/win32/x64/*.zip
-          )
-
-          if [ "${#assets[@]}" -eq 0 ]; then
-            echo "No Windows release assets found."
-            find out -type f
+          if ($assets.Count -eq 0) {
+            Write-Error 'No Windows release assets found.'
+            Get-ChildItem -Path out -Recurse -File | ForEach-Object { $_.FullName }
             exit 1
-          fi
+          }
 
-          gh release upload "${TAG_NAME}" "${assets[@]}" --clobber
+          $assetPaths = $assets | ForEach-Object { $_.FullName }
+          gh release upload $env:TAG_NAME @assetPaths --clobber
