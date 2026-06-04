@@ -854,12 +854,81 @@ const estimateRenderedLineIndex = (
   for (const hunk of fileDiff.hunks) {
     const start = side === 'deletions' ? hunk.deletionStart : hunk.additionStart;
     const count = side === 'deletions' ? hunk.deletionCount : hunk.additionCount;
-    if (lineNumber >= start && lineNumber < start + count) {
-      const lineStart = diffStyle === 'split' ? hunk.splitLineStart : hunk.unifiedLineStart;
-      return lineStart + (lineNumber - start);
+    if (lineNumber < start || lineNumber >= start + count) {
+      continue;
+    }
+
+    let deletionLineNumber = hunk.deletionStart;
+    let additionLineNumber = hunk.additionStart;
+    let splitLineIndex = hunk.splitLineStart;
+    let unifiedLineIndex = hunk.unifiedLineStart;
+
+    for (const content of hunk.hunkContent) {
+      if (content.type === 'context') {
+        const currentLineNumber = side === 'deletions' ? deletionLineNumber : additionLineNumber;
+        if (lineNumber < currentLineNumber + content.lines) {
+          const difference = lineNumber - currentLineNumber;
+          return (diffStyle === 'split' ? splitLineIndex : unifiedLineIndex) + difference;
+        }
+
+        deletionLineNumber += content.lines;
+        additionLineNumber += content.lines;
+        splitLineIndex += content.lines;
+        unifiedLineIndex += content.lines;
+        continue;
+      }
+
+      const sideCount = side === 'deletions' ? content.deletions : content.additions;
+      const currentLineNumber = side === 'deletions' ? deletionLineNumber : additionLineNumber;
+      if (lineNumber < currentLineNumber + sideCount) {
+        const difference = lineNumber - currentLineNumber;
+        return (
+          (diffStyle === 'split'
+            ? splitLineIndex
+            : unifiedLineIndex + (side === 'additions' ? content.deletions : 0)) + difference
+        );
+      }
+
+      deletionLineNumber += content.deletions;
+      additionLineNumber += content.additions;
+      splitLineIndex += Math.max(content.deletions, content.additions);
+      unifiedLineIndex += content.deletions + content.additions;
     }
   }
   return 0;
+};
+
+const isInteractiveKeyboardTarget = (target: EventTarget | null) => {
+  const candidate = target as
+    | (EventTarget & {
+        closest?: (selector: string) => Element | null;
+        isContentEditable?: boolean;
+      })
+    | null;
+
+  return (
+    isNativeInputTarget(target) ||
+    candidate?.closest?.(
+      [
+        'a[href]',
+        'area[href]',
+        'button',
+        'summary',
+        '[role="button"]',
+        '[role="checkbox"]',
+        '[role="link"]',
+        '[role="menuitem"]',
+        '[role="menuitemcheckbox"]',
+        '[role="menuitemradio"]',
+        '[role="option"]',
+        '[role="radio"]',
+        '[role="slider"]',
+        '[role="switch"]',
+        '[role="tab"]',
+      ].join(', '),
+    ) != null ||
+    candidate?.isContentEditable === true
+  );
 };
 
 // The span of changed lines in a hunk — the green/red bit, excluding the
@@ -978,11 +1047,12 @@ export function ReviewCodeView({
   const codeViewRef = useRef<CodeViewHandle<ReviewAnnotationMetadata>>(null);
   const deferredTimersRef = useRef<Set<number>>(new Set());
   const handledScrollRequestRef = useRef<number | null>(null);
-  const handledHunkNavRef = useRef<number | null>(null);
+  const handledHunkNavRef = useRef<number | null>(hunkNavigation?.request ?? null);
   const measuredCommitDetailsLayoutKeyRef = useRef<string | null>(null);
   const emptyCommentDeleteTimersRef = useRef<Map<string, number>>(new Map());
   const highlightFrameRef = useRef<number | null>(null);
   const ignoreNextLineSelectionEndRef = useRef(false);
+  const navigatedSelectionRef = useRef<CodeViewLineSelection | null>(null);
   const [markdownPreviewSections, setMarkdownPreviewSections] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -1270,7 +1340,20 @@ export function ReviewCodeView({
 
   const clearCommentLineHighlight = useCallback(() => {
     codeViewRef.current?.clearSelectedLines();
+    navigatedSelectionRef.current = null;
     setSelectedLines(null);
+  }, []);
+
+  const setCodeViewSelectedLines = useCallback((selection: CodeViewLineSelection | null) => {
+    if (
+      selection == null ||
+      navigatedSelectionRef.current == null ||
+      selection.id !== navigatedSelectionRef.current.id ||
+      !isSameSelection(selection.range, navigatedSelectionRef.current.range)
+    ) {
+      navigatedSelectionRef.current = null;
+    }
+    setSelectedLines(selection);
   }, []);
 
   const deferCommentLineHighlightClear = useCallback(() => {
@@ -1756,7 +1839,9 @@ export function ReviewCodeView({
     }
 
     if (target.selection) {
-      setSelectedLines({ id: target.itemId, range: target.selection });
+      const nextSelection = { id: target.itemId, range: target.selection };
+      navigatedSelectionRef.current = nextSelection;
+      setSelectedLines(nextSelection);
     } else {
       clearCommentLineHighlight();
     }
@@ -1782,13 +1867,19 @@ export function ReviewCodeView({
         event.ctrlKey ||
         event.metaKey ||
         event.shiftKey ||
-        isNativeInputTarget(event.target)
+        event.defaultPrevented ||
+        isInteractiveKeyboardTarget(event.target)
       ) {
         return;
       }
 
       const selection = selectedLinesRef.current;
-      if (!selection) {
+      if (
+        !selection ||
+        navigatedSelectionRef.current == null ||
+        selection.id !== navigatedSelectionRef.current.id ||
+        !isSameSelection(selection.range, navigatedSelectionRef.current.range)
+      ) {
         return;
       }
 
@@ -2038,7 +2129,7 @@ export function ReviewCodeView({
         className="code-view"
         items={items}
         onScroll={handleScroll}
-        onSelectedLinesChange={setSelectedLines}
+        onSelectedLinesChange={setCodeViewSelectedLines}
         options={codeViewOptions}
         ref={codeViewRef}
         renderAnnotation={renderAnnotation}
