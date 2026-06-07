@@ -7,7 +7,6 @@ import https from 'node:https';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import electron from 'electron';
 import packageJson from '../package.json' with { type: 'json' };
 import { formatHelpText, parseArguments, resolvePullRequestUrl } from './arguments.js';
 
@@ -150,6 +149,8 @@ const run = async () => {
   // on boot. Strip it (and the console-detach flag) so the window always opens.
   delete childEnv.ELECTRON_RUN_AS_NODE;
   delete childEnv.ELECTRON_NO_ATTACH_CONSOLE;
+
+  const { default: electron } = await import('electron');
 
   const child = spawn(electron, [root], {
     detached: true,

@@ -597,16 +597,34 @@ const readBranchState = async (launchPath, ref) => {
 };
 
 /**
- * Resolve a `base...head` (symmetric → merge-base) or `base..head` range to the
+ * @param {string} repoRoot
+ * @param {string} ref
+ */
+const resolveRangeEndpoint = async (repoRoot, ref) => {
+  if (ref !== 'HEAD') {
+    try {
+      return (await git(repoRoot, ['rev-parse', '--verify', `refs/heads/${ref}^{commit}`])).trim();
+    } catch {
+      // Fall back to Git's normal ref parser for tags, hashes, and fully-qualified refs.
+    }
+  }
+
+  return (await git(repoRoot, ['rev-parse', '--verify', `${ref}^{commit}`])).trim();
+};
+
+/**
+ * Resolve a `base...head` (symmetric -> merge-base) or `base..head` range to the
  * concrete (oldRef, newRef) pair the commit helpers diff against.
  * @param {string} repoRoot @param {string} base @param {string} head @param {boolean} symmetric
  * @returns {Promise<{ newRef: string; oldRef: string }>}
  */
 const resolveRangeRefs = async (repoRoot, base, head, symmetric) => {
-  const newRef = (await git(repoRoot, ['rev-parse', '--verify', `${head}^{commit}`])).trim();
+  const newRef = await resolveRangeEndpoint(repoRoot, head);
   const oldRef = symmetric
-    ? (await git(repoRoot, ['merge-base', base, newRef])).trim()
-    : (await git(repoRoot, ['rev-parse', '--verify', `${base}^{commit}`])).trim();
+    ? (
+        await git(repoRoot, ['merge-base', await resolveRangeEndpoint(repoRoot, base), newRef])
+      ).trim()
+    : await resolveRangeEndpoint(repoRoot, base);
   return { newRef, oldRef };
 };
 

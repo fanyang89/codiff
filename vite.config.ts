@@ -48,6 +48,9 @@ export default defineConfig({
   staged: {
     '*': 'vp check --fix',
   },
+  test: {
+    setupFiles: ['./src/__tests__/setup.ts'],
+  },
   worker: {
     format: 'es',
   },
