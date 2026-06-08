@@ -386,6 +386,42 @@ export default function App() {
     }, 1200);
   }, []);
 
+  const setFileViewedState = useCallback(
+    (repositoryState: RepositoryState, file: ChangedFile, nextViewed: boolean) => {
+      setViewed((current) => {
+        if (!nextViewed) {
+          const next = { ...current };
+          delete next[file.path];
+          if (repositoryState.source.type === 'working-tree') {
+            writeViewed(repositoryState.root, next);
+          }
+          return next;
+        }
+
+        const next = {
+          ...current,
+          [file.path]: file.fingerprint,
+        };
+        if (repositoryState.source.type === 'working-tree') {
+          writeViewed(repositoryState.root, next);
+        }
+        return next;
+      });
+
+      setCollapsed((current) => {
+        const next = new Set(current);
+        if (nextViewed) {
+          next.add(file.path);
+        } else {
+          next.delete(file.path);
+        }
+        return next;
+      });
+      bumpItemVersion(file.path);
+    },
+    [bumpItemVersion],
+  );
+
   const saveCurrentSourceSession = useCallback(() => {
     const currentState = stateRef.current;
     if (!currentState) {
@@ -1469,36 +1505,7 @@ export default function App() {
           }
 
           const isViewed = viewedRef.current[file.path] === file.fingerprint;
-          setViewed((current) => {
-            if (isViewed) {
-              const next = { ...current };
-              delete next[file.path];
-              if (currentState.source.type === 'working-tree') {
-                writeViewed(currentState.root, next);
-              }
-              return next;
-            }
-
-            const next = {
-              ...current,
-              [file.path]: file.fingerprint,
-            };
-            if (currentState.source.type === 'working-tree') {
-              writeViewed(currentState.root, next);
-            }
-            return next;
-          });
-
-          setCollapsed((current) => {
-            const next = new Set(current);
-            if (isViewed) {
-              next.delete(file.path);
-            } else {
-              next.add(file.path);
-            }
-            return next;
-          });
-          bumpItemVersion(file.path);
+          setFileViewedState(currentState, file, !isViewed);
         },
         id: 'toggle-viewed',
         title: 'Toggle Viewed',
@@ -1589,6 +1596,7 @@ export default function App() {
     openDiffSearch,
     openSelectedFile,
     reloadWindow,
+    setFileViewedState,
     toggleSidebar,
     toggleWordWrap,
   ]);
@@ -1661,40 +1669,9 @@ export default function App() {
         return;
       }
 
-      setViewed((current) => {
-        if (isViewed) {
-          const next = { ...current };
-          delete next[file.path];
-          if (state.source.type === 'working-tree') {
-            writeViewed(state.root, next);
-          }
-          return next;
-        }
-
-        const next = {
-          ...current,
-          [file.path]: file.fingerprint,
-        };
-        if (state.source.type === 'working-tree') {
-          writeViewed(state.root, next);
-        }
-        return next;
-      });
-
-      setCollapsed((current) => {
-        if (isViewed) {
-          const next = new Set(current);
-          next.delete(file.path);
-          return next;
-        }
-
-        const next = new Set(current);
-        next.add(file.path);
-        return next;
-      });
-      bumpItemVersion(file.path);
+      setFileViewedState(state, file, !isViewed);
     },
-    [bumpItemVersion, state],
+    [setFileViewedState, state],
   );
 
   const createComment = useCallback(
@@ -2240,6 +2217,7 @@ export default function App() {
           searchQuery={sidebarMode === 'history' ? historySearchQuery : fileSearchQuery}
           selectedPath={visibleSelectedPath}
           showWhitespace={showWhitespace}
+          viewed={viewed}
           walkthroughError={walkthroughError}
           walkthroughLoading={walkthroughLoading}
           walkthroughUnread={walkthroughUnread}
