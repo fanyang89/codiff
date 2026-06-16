@@ -1,6 +1,14 @@
 import type { FileTreeRowDecorationRenderer } from '@pierre/trees';
 import { FileTree, useFileTree } from '@pierre/trees/react';
-import { useCallback, useEffect, useMemo, useRef, type MouseEvent, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type MouseEvent,
+  type RefObject,
+} from 'react';
 import { matchesShortcut } from '../../config/keymap.ts';
 import type { CodiffKeymap } from '../../config/types.ts';
 import type {
@@ -176,13 +184,16 @@ export function Sidebar({
   useTreeShadowStyle(treeHostRef, reloadDeltaGitStatusStyleAttribute, reloadDeltaGitStatusCSS);
   useTreeShadowStyle(treeHostRef, viewedRowStyleAttribute, viewedRowCSS);
 
+  useLayoutEffect(() => {
+    lineCountsByPathRef.current = lineCountsByPath;
+    if (model.getFileTreeContainer()) {
+      model.render({});
+    }
+  }, [lineCountsByPath, model]);
+
   useEffect(() => {
     model.resetPaths(paths);
   }, [model, paths]);
-
-  useEffect(() => {
-    lineCountsByPathRef.current = lineCountsByPath;
-  }, [lineCountsByPath]);
 
   useEffect(() => {
     model.setGitStatus(status);
