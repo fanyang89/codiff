@@ -164,7 +164,7 @@ const run = async () => {
           ? { ref: commitRef, type: 'commit' }
           : branchRef
             ? { ref: branchRef, type: 'branch' }
-            : { type: 'working-tree' };
+            : undefined;
 
     try {
       const commonOptions = {

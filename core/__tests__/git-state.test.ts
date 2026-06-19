@@ -85,6 +85,11 @@ type GitStateModule = {
     source?: ReviewSource,
     options?: { showWhitespace?: boolean },
   ) => Promise<RepositoryState>;
+  readWalkthroughRepositoryState: (
+    launchPath: string,
+    source?: ReviewSource,
+    options?: { showWhitespace?: boolean },
+  ) => Promise<RepositoryState>;
   readWorkingTreeState: (
     launchPath: string,
     options?: { eagerContents?: boolean; showWhitespace?: boolean },
@@ -116,6 +121,7 @@ const {
   readDiffSectionContent,
   readRepositoryChangeSignature,
   readRepositoryState,
+  readWalkthroughRepositoryState,
   readWorkingTreeState,
   resolvePullRequestContentRefs,
   selectUnresolvedReviewComments,
@@ -693,6 +699,35 @@ test('readRepositoryState and history handle fresh repositories', async () => {
     expect(state.files.map((file) => file.path)).toEqual(['notes/todo.txt']);
   });
 });
+
+test('readWalkthroughRepositoryState falls back to HEAD only for a clean implicit source', () =>
+  withRepo(async (repo) => {
+    await writeRepoFile(repo, 'example.txt', 'before\n');
+    await commitAll(repo, 'initial commit');
+    await writeRepoFile(repo, 'example.txt', 'after\n');
+    await commitAll(repo, 'update example');
+
+    const cleanState = await readWalkthroughRepositoryState(repo);
+    expect(cleanState.source).toMatchObject({ type: 'commit' });
+    expect(cleanState.commitMetadata?.subject).toBe('update example');
+
+    const explicitWorkingTreeState = await readWalkthroughRepositoryState(repo, {
+      type: 'working-tree',
+    });
+    expect(explicitWorkingTreeState.source).toEqual({ type: 'working-tree' });
+    expect(explicitWorkingTreeState.files).toEqual([]);
+
+    await writeRepoFile(repo, 'example.txt', 'local\n');
+    const dirtyState = await readWalkthroughRepositoryState(repo);
+    expect(dirtyState.source).toEqual({ type: 'working-tree' });
+  }));
+
+test('readWalkthroughRepositoryState keeps a fresh repository on the working tree', () =>
+  withRepo(async (repo) => {
+    const state = await readWalkthroughRepositoryState(repo);
+    expect(state.source).toEqual({ type: 'working-tree' });
+    expect(state.files).toEqual([]);
+  }));
 
 test('readRepositoryState reports commit metadata for root commits', async () => {
   await withRepo(async (repo) => {

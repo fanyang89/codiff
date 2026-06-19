@@ -39,9 +39,9 @@ show_help() {
   printf '  %-38s%s%s%s\n' "--help, -h" "$gray" "Show this help message and exit." "$reset"
   printf '  %-38s%s%s%s\n' "--opencode-session <id>" "$gray" "Attach OpenCode session metadata to a walkthrough." "$reset"
   printf '  %-38s%s%s%s\n' "--pi-session <id>" "$gray" "Attach Pi session metadata to a walkthrough." "$reset"
-  printf '  %-38s%s%s%s\n' "--share" "$gray" "Generate and share a narrative walkthrough, then print its URL." "$reset"
+  printf '  %-38s%s%s%s\n' "--share" "$gray" "Generate and share a walkthrough, then print its URL; use HEAD when clean." "$reset"
   printf '  %-38s%s%s%s\n' "--version, -v" "$gray" "Show version number and exit." "$reset"
-  printf '  %-38s%s%s%s\n' "--walkthrough, -w" "$gray" "Start with an LLM-generated narrative walkthrough." "$reset"
+  printf '  %-38s%s%s%s\n' "--walkthrough, -w" "$gray" "Start an LLM walkthrough; use HEAD when there are no local changes." "$reset"
   printf '  %-38s%s%s%s\n' "--walkthrough-context <file>" "$gray" "Seed a walkthrough with Codex conversation context JSON." "$reset"
   printf '  %-38s%s%s%s\n' "--walkthrough-file <file>" "$gray" "Open a pre-authored narrative walkthrough JSON file." "$reset"
   printf '  %-38s%s%s%s\n' "--walkthrough-guide" "$gray" "Print the narrative walkthrough authoring guide and schema, then exit." "$reset"
@@ -54,9 +54,9 @@ show_help() {
   printf '  %-22s%s%s%s\n' "codiff '#75'" "$gray" "Review pull request #75." "$reset"
   printf '  %-22s%s%s%s\n' "codiff pr 75" "$gray" "Review pull request #75 (alternate syntax)." "$reset"
   printf '  %-22s%s%s%s\n' "codiff mr 75" "$gray" "Review GitLab merge request !75." "$reset"
-  printf '  %-22s%s%s%s\n' "codiff -w" "$gray" "Start with an LLM narrative walkthrough." "$reset"
+  printf '  %-22s%s%s%s\n' "codiff -w" "$gray" "Walk through local changes, or HEAD when clean." "$reset"
   printf '  %-22s%s%s%s\n' "codiff -w a1b2c3d" "$gray" "Walkthrough a specific commit." "$reset"
-  printf '  %-22s%s%s%s\n' "codiff --share" "$gray" "Share an LLM narrative walkthrough." "$reset"
+  printf '  %-22s%s%s%s\n' "codiff --share" "$gray" "Share local changes, or HEAD when clean." "$reset"
   printf '  %-22s%s%s%s\n' "codiff --share HEAD" "$gray" "Share a walkthrough for a commit." "$reset"
 }
 

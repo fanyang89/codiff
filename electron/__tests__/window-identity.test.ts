@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,6 +28,8 @@ const { findMatchingWindowIdentity, getWindowIdentity, parseGitHubPullRequestUrl
               type: 'pull-request';
               url: string;
             };
+        walkthrough?: boolean;
+        walkthroughFile?: string;
       },
     ) => { key: string; repositoryRoot: string; sourceKey: string } | null;
     parseGitHubPullRequestUrl: (value: string) => {
@@ -86,6 +88,32 @@ test('window identities resolve commit refs to the same commit sha', async () =>
         source: { ref: 'HEAD', type: 'commit' },
       })?.key,
     );
+  } finally {
+    await rm(repositoryPath, { force: true, recursive: true });
+  }
+});
+
+test('implicit walkthrough identities use HEAD only when the working tree is clean', async () => {
+  const repositoryPath = await createRepository();
+
+  try {
+    const headIdentity = getWindowIdentity(repositoryPath, {
+      source: { ref: 'HEAD', type: 'commit' },
+    });
+    expect(getWindowIdentity(repositoryPath, { walkthrough: true })?.key).toBe(headIdentity?.key);
+
+    await writeFile(join(repositoryPath, 'local.txt'), 'change\n');
+    expect(getWindowIdentity(repositoryPath, { walkthrough: true })?.sourceKey).toBe(
+      'working-tree',
+    );
+
+    await rm(join(repositoryPath, 'local.txt'));
+    expect(
+      getWindowIdentity(repositoryPath, {
+        walkthrough: true,
+        walkthroughFile: '/tmp/walkthrough.json',
+      })?.sourceKey,
+    ).toBe('working-tree');
   } finally {
     await rm(repositoryPath, { force: true, recursive: true });
   }

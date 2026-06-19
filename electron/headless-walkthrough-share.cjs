@@ -5,7 +5,11 @@ const { userInfo } = require('node:os');
 const { getAgent } = require('./agent.cjs');
 const { readConfig, writeConfig } = require('./config.cjs');
 const { createCloudflareAccessClient } = require('./cloudflare-access.cjs');
-const { readGitIdentity, readRepositoryState } = require('./git-state.cjs');
+const {
+  readGitIdentity,
+  readRepositoryState,
+  readWalkthroughRepositoryState,
+} = require('./git-state.cjs');
 const {
   normalizeNarrativeWalkthrough,
   readNarrativeWalkthrough,
@@ -107,6 +111,19 @@ const readShareState = async (repositoryPath, source, config) =>
   ]);
 
 /**
+ * @param {string} repositoryPath
+ * @param {ReviewSource | undefined} source
+ * @param {ReturnType<typeof readConfig>} config
+ */
+const readGeneratedShareState = async (repositoryPath, source, config) =>
+  Promise.all([
+    readWalkthroughRepositoryState(repositoryPath, source, {
+      showWhitespace: config.settings.showWhitespace,
+    }),
+    readGitIdentity(repositoryPath),
+  ]);
+
+/**
  * @param {{
  *   agent?: 'claude' | 'codex' | 'opencode' | 'pi';
  *   codiffVersion: string;
@@ -181,12 +198,12 @@ const generateAndShareWalkthrough = async ({
   piSessionId,
   repositoryPath,
   serviceUrlOverride,
-  source = { type: 'working-tree' },
+  source,
   walkthroughContextPath,
 }) => {
   const config = readConfig();
   const agent = getAgent(agentOverride || config.settings.agentBackend);
-  const [state, uploader] = await readShareState(repositoryPath, source, config);
+  const [state, uploader] = await readGeneratedShareState(repositoryPath, source, config);
   const sessionIds = {
     claudeSessionId,
     codexSessionId,

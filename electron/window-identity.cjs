@@ -49,6 +49,21 @@ const resolveCommitRef = (repositoryRoot, ref) => {
   }
 };
 
+/** @param {string} repositoryRoot */
+const hasWorkingTreeChanges = (repositoryRoot) => {
+  try {
+    return Boolean(
+      execFileSync(
+        'git',
+        ['-C', repositoryRoot, 'status', '--porcelain=v1', '-z', '--untracked-files=normal'],
+        { encoding: 'utf8' },
+      ),
+    );
+  } catch {
+    return false;
+  }
+};
+
 /** @param {string} repositoryRoot @param {string} baseRef @param {string} headRef */
 const resolveMergeBase = (repositoryRoot, baseRef, headRef) => {
   try {
@@ -141,7 +156,16 @@ const getSourceKey = (repositoryRoot, source = { type: 'working-tree' }) => {
 /** @param {string} repositoryPath @param {Partial<CodiffLaunchOptions>} [launchOptions] */
 const getWindowIdentity = (repositoryPath, launchOptions = {}) => {
   const repositoryRoot = resolveRepositoryRoot(repositoryPath);
-  const sourceKey = getSourceKey(repositoryRoot, launchOptions.source);
+  const implicitWalkthroughHead =
+    launchOptions.walkthrough &&
+    !launchOptions.walkthroughFile &&
+    !launchOptions.source &&
+    !hasWorkingTreeChanges(repositoryRoot)
+      ? resolveCommitRef(repositoryRoot, 'HEAD')
+      : null;
+  const sourceKey = implicitWalkthroughHead
+    ? `commit:${implicitWalkthroughHead}`
+    : getSourceKey(repositoryRoot, launchOptions.source);
   return sourceKey
     ? {
         key: `${repositoryRoot}\0${sourceKey}`,

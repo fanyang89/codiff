@@ -81,6 +81,25 @@ const readRepositoryState = async (launchPath, source = { type: 'working-tree' }
   return { ...state, branch };
 };
 
+/**
+ * An implicit walkthrough reviews local changes when present and otherwise
+ * reviews the current commit. Explicit sources always retain their semantics.
+ *
+ * @param {string} launchPath
+ * @param {ReviewSource} [source]
+ * @param {{showWhitespace?: boolean}} [options]
+ * @returns {Promise<RepositoryState>}
+ */
+const readWalkthroughRepositoryState = async (launchPath, source, options = {}) => {
+  const state = await readRepositoryState(launchPath, source, options);
+  if (source || state.source.type !== 'working-tree' || state.files.length > 0) {
+    return state;
+  }
+
+  const head = (await gitOrEmpty(state.root, ['rev-parse', '--verify', 'HEAD'])).trim();
+  return head ? readRepositoryState(launchPath, { ref: 'HEAD', type: 'commit' }, options) : state;
+};
+
 /** @param {Extract<ReviewSource, {type: 'pull-request'}>} source */
 const isGitLabReviewSource = (source) =>
   source.provider === 'gitlab' || parseReviewUrl(source.url)?.provider === 'gitlab';
@@ -170,6 +189,7 @@ module.exports = {
   readCommitState,
   readPullRequestState,
   readRepositoryState,
+  readWalkthroughRepositoryState,
   readWorkingTreeState,
   resolvePullRequestContentRefs,
   submitPullRequestComment: (launchPath, request) =>

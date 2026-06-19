@@ -46,7 +46,7 @@ export const flagDefinitions = [
     type: 'string',
   },
   {
-    description: 'Generate and share a narrative walkthrough, then print its URL.',
+    description: 'Generate and share a walkthrough, then print its URL; use HEAD when clean.',
     name: 'share',
     type: 'boolean',
   },
@@ -57,7 +57,7 @@ export const flagDefinitions = [
     type: 'boolean',
   },
   {
-    description: 'Start with an LLM-generated narrative walkthrough.',
+    description: 'Start an LLM walkthrough; use HEAD when there are no local changes.',
     name: 'walkthrough',
     short: 'w',
     type: 'boolean',
@@ -89,9 +89,9 @@ export const usageExamples = [
   { command: "codiff '#75'", description: 'Review pull request #75.' },
   { command: 'codiff pr 75', description: 'Review pull request #75 (alternate syntax).' },
   { command: 'codiff mr 75', description: 'Review GitLab merge request !75.' },
-  { command: 'codiff -w', description: 'Start with an LLM narrative walkthrough.' },
+  { command: 'codiff -w', description: 'Walk through local changes, or HEAD when clean.' },
   { command: 'codiff -w a1b2c3d', description: 'Generate a narrative walkthrough for a commit.' },
-  { command: 'codiff --share', description: 'Share an LLM narrative walkthrough.' },
+  { command: 'codiff --share', description: 'Share local changes, or HEAD when clean.' },
   { command: 'codiff --share HEAD', description: 'Share a walkthrough for a commit.' },
 ];
 

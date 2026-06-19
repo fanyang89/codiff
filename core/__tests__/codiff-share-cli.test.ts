@@ -180,7 +180,7 @@ test('headless share uploads the canonical snapshot and prints its URL', async (
   }
 });
 
-test('codiff --share generates a walkthrough for HEAD and prints only its URL', async () => {
+test('codiff --share falls back to HEAD for a clean working tree and prints only its URL', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'codiff-generate-share-'));
   const repositoryPath = join(directory, 'repo');
   const fakeCodexPath = join(directory, 'codex');
@@ -285,7 +285,7 @@ exit 1
     const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     const { stderr, stdout } = await execFileAsync(
       process.execPath,
-      [resolve('bin/codiff.js'), '--share', 'HEAD', repositoryPath],
+      [resolve('bin/codiff.js'), '--share', repositoryPath],
       {
         encoding: 'utf8',
         env: {

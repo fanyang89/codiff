@@ -58,7 +58,9 @@ Full GitHub and GitLab review URLs are also supported. GitLab hosts and nested p
 derived from the URL or local Git remote and authenticated through `glab`; Codiff does not require
 instance-specific configuration.
 
-Start with an LLM-generated narrative walkthrough:
+Start with an LLM-generated narrative walkthrough. When generating a walkthrough without an
+explicit target, Codiff uses local changes when present and falls back to `HEAD` when the working
+tree is clean:
 
 ```bash
 codiff -w
@@ -66,7 +68,8 @@ codiff -w a1b2c3d
 ```
 
 When walkthrough sharing is available for your Git identity, generate and upload the same
-walkthrough without opening Codiff. The command prints the final URL:
+walkthrough without opening Codiff. The same default applies to generated walkthroughs, and the
+command prints the final URL:
 
 ```bash
 codiff --share

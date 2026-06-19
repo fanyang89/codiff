@@ -23,6 +23,7 @@ const {
   readGitIdentity,
   readRepositoryChangeSignature,
   readRepositoryState,
+  readWalkthroughRepositoryState,
   submitPullRequestComment,
   submitPullRequestReview,
   validateRepositoryPath,
@@ -149,6 +150,14 @@ const readRepositoryStateWithConfig = (repositoryPath, source) =>
   readRepositoryState(repositoryPath, source, {
     showWhitespace: config.settings.showWhitespace,
   });
+
+/** @param {string} repositoryPath @param {CodiffLaunchOptions} launchOptions */
+const readInitialRepositoryStateWithConfig = (repositoryPath, launchOptions) =>
+  launchOptions.walkthrough && !launchOptions.walkthroughFile
+    ? readWalkthroughRepositoryState(repositoryPath, launchOptions.source, {
+        showWhitespace: config.settings.showWhitespace,
+      })
+    : readRepositoryStateWithConfig(repositoryPath, launchOptions.source);
 
 /** @param {number} webContentsId */
 const resolveWindowAgent = (webContentsId) => {
@@ -701,14 +710,20 @@ const createWindow = (
   }
   windowRepositories.set(webContentsId, repositoryPath);
   windowLaunchOptions.set(webContentsId, launchOptions);
-  const initialRepositoryState = readRepositoryStateWithConfig(
+  const initialRepositoryState = readInitialRepositoryStateWithConfig(
     repositoryPath,
-    launchOptions.source,
+    launchOptions,
   );
   initialRepositoryState.catch(() => {});
   windowInitialRepositoryStates.set(webContentsId, initialRepositoryState);
   if (!launchOptions.source) {
-    startRepositoryWatcher(window, repositoryPath);
+    void initialRepositoryState
+      .then((state) => {
+        if (state.source.type === 'working-tree' && !window.isDestroyed()) {
+          startRepositoryWatcher(window, repositoryPath);
+        }
+      })
+      .catch(() => {});
   }
   window.on('enter-full-screen', () => {
     window.webContents.send('codiff:windowFullScreenChanged', true);
@@ -827,7 +842,7 @@ const focusOrCreateWindow = (
       windowLaunchOptions.set(matchingWebContentsId, launchOptions);
       windowInitialRepositoryStates.set(
         matchingWebContentsId,
-        readRepositoryStateWithConfig(repositoryPath, launchOptions.source),
+        readInitialRepositoryStateWithConfig(repositoryPath, launchOptions),
       );
       if (identity) {
         windowIdentities.set(matchingWebContentsId, identity);

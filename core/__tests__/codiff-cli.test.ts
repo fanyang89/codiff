@@ -1022,7 +1022,7 @@ test('formatHelpText styles titles and descriptions', () => {
   expect(text).toContain('\u001b[90mShow this help message and exit.\u001b[0m');
   expect(text).toContain('  codiff -w');
   expect(text).not.toContain('\u001b[1;34mcodiff -w\u001b[0m');
-  expect(text).toContain('\u001b[90mStart with an LLM narrative walkthrough.\u001b[0m');
+  expect(text).toContain('\u001b[90mWalk through local changes, or HEAD when clean.\u001b[0m');
 });
 
 test('codiff-app prints help text and exits 0', async () => {
