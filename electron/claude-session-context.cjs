@@ -1,9 +1,10 @@
 // @ts-check
 
-const { existsSync, readFileSync, readdirSync, statSync } = require('node:fs');
+const { readdir } = require('node:fs/promises');
 const { homedir } = require('node:os');
 const { join } = require('node:path');
 const { cleanText, truncate } = require('./agent-shared.cjs');
+const { readSessionFileTail } = require('./session-context-shared.cjs');
 
 const MAX_SESSION_SCAN_FILES = 20_000;
 const MAX_SESSION_MESSAGE_CHARS = 2_400;
@@ -75,8 +76,8 @@ const pathMatchesSessionId = (path, sessionId) =>
  * @param {string} root
  * @param {string} sessionId
  */
-const findClaudeSessionFile = (root, sessionId) => {
-  if (!sessionId || !existsSync(root)) {
+const findClaudeSessionFile = async (root, sessionId) => {
+  if (!sessionId) {
     return null;
   }
 
@@ -93,13 +94,14 @@ const findClaudeSessionFile = (root, sessionId) => {
     /** @type {Array<import('node:fs').Dirent>} */
     let entries;
     try {
-      entries = readdirSync(directory, { withFileTypes: true }).sort((a, b) =>
+      entries = (await readdir(directory, { withFileTypes: true })).sort((a, b) =>
         b.name.localeCompare(a.name),
       );
     } catch {
       continue;
     }
 
+    const directories = [];
     for (const entry of entries) {
       scanned += 1;
       const path = join(directory, entry.name);
@@ -108,13 +110,15 @@ const findClaudeSessionFile = (root, sessionId) => {
       }
 
       if (entry.isDirectory()) {
-        stack.push(path);
+        directories.push(path);
       }
 
       if (scanned >= MAX_SESSION_SCAN_FILES) {
         break;
       }
     }
+
+    stack.push(...directories.reverse());
   }
 
   return null;
@@ -152,17 +156,12 @@ const extractMessage = (input) => {
 };
 
 /** @param {string} sessionPath */
-const readSessionMessages = (sessionPath) => {
-  const stat = statSync(sessionPath);
-  if (!stat.isFile()) {
-    return [];
-  }
-
+const readSessionMessages = async (sessionPath) => {
   /** @type {Array<{role: 'assistant' | 'user'; text: string}>} */
   const messages = [];
   let totalChars = 0;
 
-  for (const line of readFileSync(sessionPath, 'utf8').split('\n')) {
+  for (const line of (await readSessionFileTail(sessionPath)).split('\n')) {
     if (!line.trim()) {
       continue;
     }
@@ -200,16 +199,16 @@ const readSessionMessages = (sessionPath) => {
 
 /**
  * @param {string | undefined} claudeSessionId
- * @returns {WalkthroughContext | null}
+ * @returns {Promise<WalkthroughContext | null>}
  */
-const readClaudeSessionContext = (claudeSessionId) => {
+const readClaudeSessionContext = async (claudeSessionId) => {
   const threadId = normalizeClaudeSessionId(claudeSessionId);
   if (!threadId) {
     return null;
   }
 
-  const path = findClaudeSessionFile(join(getClaudeHome(), 'projects'), threadId);
-  const messages = path ? readSessionMessages(path) : [];
+  const path = await findClaudeSessionFile(join(getClaudeHome(), 'projects'), threadId);
+  const messages = path ? await readSessionMessages(path) : [];
 
   return {
     messages,

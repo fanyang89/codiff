@@ -206,6 +206,8 @@ export type WalkthroughContext = {
       | 'codex-session-excerpt'
       | 'claude-session'
       | 'claude-session-excerpt'
+      | 'opencode-session'
+      | 'opencode-session-excerpt'
       | 'pi-session'
       | 'pi-session-excerpt';
   };

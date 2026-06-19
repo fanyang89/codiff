@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,16 +7,16 @@ import { expect, test } from 'vite-plus/test';
 const require = createRequire(import.meta.url);
 const { findCodexSessionFile, readCodexSessionContext, readSessionMessages } =
   require('../codex-session-context.cjs') as {
-    findCodexSessionFile: (root: string, sessionId: string) => string | null;
-    readCodexSessionContext: (sessionId?: string) => {
+    findCodexSessionFile: (root: string, sessionId: string) => Promise<string | null>;
+    readCodexSessionContext: (sessionId?: string) => Promise<{
       messages?: ReadonlyArray<{ role: 'assistant' | 'user'; text: string }>;
       risks?: ReadonlyArray<string>;
       source: { threadId?: string; type: string };
       version: 1;
-    } | null;
+    } | null>;
     readSessionMessages: (
       path: string,
-    ) => ReadonlyArray<{ role: 'assistant' | 'user'; text: string }>;
+    ) => Promise<ReadonlyArray<{ role: 'assistant' | 'user'; text: string }>>;
   };
 
 const sessionId = '019e5e57-e7d6-7392-9ad1-ad959319d2fb';
@@ -64,7 +64,7 @@ test('extracts bounded readable messages from Codex session jsonl', async () => 
       ].join('\n'),
     );
 
-    expect(readSessionMessages(sessionPath)).toEqual([
+    await expect(readSessionMessages(sessionPath)).resolves.toEqual([
       { role: 'user', text: 'Implement walkthrough session handoff.' },
       { role: 'assistant', text: 'Updated the CLI and skill handoff.' },
     ]);
@@ -99,8 +99,10 @@ test('finds the active Codex session under CODEX_HOME', async () => {
     );
     process.env.CODEX_HOME = directory;
 
-    expect(findCodexSessionFile(join(directory, 'sessions'), sessionId)).toBe(sessionPath);
-    expect(readCodexSessionContext(sessionId)).toMatchObject({
+    await expect(findCodexSessionFile(join(directory, 'sessions'), sessionId)).resolves.toBe(
+      sessionPath,
+    );
+    await expect(readCodexSessionContext(sessionId)).resolves.toMatchObject({
       messages: [
         {
           role: 'user',
@@ -119,6 +121,58 @@ test('finds the active Codex session under CODEX_HOME', async () => {
     } else {
       process.env.CODEX_HOME = previousCodexHome;
     }
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+test('searches newer Codex session directories first', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'codiff-codex-session-order-'));
+  const olderDirectory = join(directory, '2025', '12', '31');
+  const newerDirectory = join(directory, '2026', '01', '01');
+  const olderPath = join(olderDirectory, `rollout-${sessionId}.jsonl`);
+  const newerPath = join(newerDirectory, `rollout-${sessionId}.jsonl`);
+
+  try {
+    await mkdir(olderDirectory, { recursive: true });
+    await mkdir(newerDirectory, { recursive: true });
+    await writeFile(olderPath, '');
+    await writeFile(newerPath, '');
+
+    await expect(findCodexSessionFile(directory, sessionId)).resolves.toBe(newerPath);
+  } finally {
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+test('reads recent Codex messages from a large session without loading the whole file', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'codiff-codex-large-session-'));
+  const sessionPath = join(directory, `rollout-${sessionId}.jsonl`);
+
+  try {
+    const file = await open(sessionPath, 'w');
+    try {
+      await file.truncate(16 * 1024 * 1024 + 1);
+      await file.write('\n', 0, 'utf8');
+      await file.write(
+        `${JSON.stringify({
+          payload: {
+            content: [{ text: 'Newest bounded Codex message.', type: 'input_text' }],
+            role: 'user',
+            type: 'message',
+          },
+          type: 'response_item',
+        })}\n`,
+        1,
+        'utf8',
+      );
+    } finally {
+      await file.close();
+    }
+
+    await expect(readSessionMessages(sessionPath)).resolves.toEqual([
+      { role: 'user', text: 'Newest bounded Codex message.' },
+    ]);
+  } finally {
     await rm(directory, { force: true, recursive: true });
   }
 });

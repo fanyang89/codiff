@@ -120,6 +120,7 @@ const run = async () => {
     claudeSessionId,
     codexSessionId,
     commitRef,
+    opencodeSessionId,
     piSessionId,
     pullRequestNumber,
     pullRequestProvider,
@@ -183,6 +184,7 @@ const run = async () => {
             ...commonOptions,
             claudeSessionId,
             codexSessionId,
+            opencodeSessionId,
             piSessionId,
             walkthroughContextPath,
           });
@@ -212,6 +214,7 @@ const run = async () => {
     CODIFF_CLAUDE_SESSION_ID: claudeSessionId ?? '',
     CODIFF_COMMIT_REF: commitRef ?? '',
     CODIFF_CODEX_SESSION_ID: codexSessionId ?? '',
+    CODIFF_OPENCODE_SESSION_ID: opencodeSessionId ?? '',
     CODIFF_PI_SESSION_ID: piSessionId ?? '',
     CODIFF_PULL_REQUEST_URL: pullRequestUrl ?? '',
     CODIFF_REVIEW_PROVIDER: pullRequestProvider ?? '',

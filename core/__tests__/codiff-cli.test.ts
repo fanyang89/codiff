@@ -1,5 +1,14 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  truncate,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -239,8 +248,17 @@ test('parseArguments recognizes Claude walkthrough seed options and the agent ov
 });
 
 test('parseArguments recognizes the OpenCode agent override', () => {
-  expect(parseArguments(['-w', '--agent', 'opencode'])).toMatchObject({
+  expect(
+    parseArguments([
+      '-w',
+      '--agent',
+      'opencode',
+      '--opencode-session',
+      'ses_121b4816bffebMr9YE52O4870p',
+    ]),
+  ).toMatchObject({
     agentBackend: 'opencode',
+    opencodeSessionId: 'ses_121b4816bffebMr9YE52O4870p',
     walkthrough: true,
   });
 });
@@ -562,9 +580,11 @@ test('Codex skill launcher uses the session cwd as the repository target', async
     await mkdir(repositoryPath, { recursive: true });
     await mkdir(sessionDirectory, { recursive: true });
     await writeFile(walkthroughFile, '{}');
-    await writeFile(
+    await writeFile(sessionPath, '');
+    await truncate(sessionPath, 17 * 1024 * 1024);
+    await appendFile(
       sessionPath,
-      `${JSON.stringify({
+      `\n${JSON.stringify({
         payload: { cwd: repositoryPath },
         type: 'turn_context',
       })}\n`,
@@ -733,7 +753,9 @@ test('Claude skill launcher uses the session cwd and forwards --agent claude', a
     await mkdir(repositoryPath, { recursive: true });
     await mkdir(projectDirectory, { recursive: true });
     await writeFile(walkthroughFile, '{}');
-    await writeFile(sessionPath, `${JSON.stringify({ cwd: repositoryPath })}\n`);
+    await writeFile(sessionPath, '');
+    await truncate(sessionPath, 17 * 1024 * 1024);
+    await appendFile(sessionPath, `\n${JSON.stringify({ cwd: repositoryPath })}\n`);
 
     await execFileAsync(
       process.execPath,
@@ -783,6 +805,7 @@ test('Pi skill launcher resolves the current session and forwards --agent pi', a
       sessionPath,
       `${JSON.stringify({ cwd: realRepositoryPath, id: sessionId, type: 'session' })}\n`,
     );
+    await truncate(sessionPath, 17 * 1024 * 1024);
 
     await execFileAsync(
       process.execPath,
@@ -813,15 +836,28 @@ test('Pi skill launcher resolves the current session and forwards --agent pi', a
   }
 });
 
-test('OpenCode skill launcher uses the current project and OpenCode runtime backend', async () => {
+test('OpenCode skill launcher links the project session from a repository subdirectory', async () => {
   const logger = await createFakeCommandLogger('codiff-opencode-launcher-', 'codiff');
   const repositoryPath = join(logger.directory, 'repo');
+  const workingDirectory = join(repositoryPath, 'nested');
   const walkthroughFile = join(logger.directory, 'walkthrough.json');
+  const homePath = join(logger.directory, 'home');
+  const openCodePath = join(homePath, '.opencode', 'bin', 'opencode');
+  const sessionId = 'ses_121b4816bffebMr9YE52O4870p';
 
   try {
-    await mkdir(repositoryPath, { recursive: true });
+    await mkdir(workingDirectory, { recursive: true });
+    await mkdir(join(homePath, '.opencode', 'bin'), { recursive: true });
     const realRepositoryPath = await realpath(repositoryPath);
+    const realWorkingDirectory = await realpath(workingDirectory);
     await writeFile(walkthroughFile, '{}');
+    await writeFile(
+      openCodePath,
+      `#!/bin/sh
+printf '[{"id":"${sessionId}","directory":"%s"}]\\n' "$OPENCODE_SESSION_DIRECTORY"
+`,
+    );
+    await chmod(openCodePath, 0o755);
 
     await execFileAsync(
       process.execPath,
@@ -832,10 +868,13 @@ test('OpenCode skill launcher uses the current project and OpenCode runtime back
         'HEAD',
       ],
       {
-        cwd: repositoryPath,
+        cwd: workingDirectory,
         env: {
           ...logger.env,
           CODIFF_COMMAND: logger.commandPath,
+          HOME: homePath,
+          OPENCODE_SESSION_DIRECTORY: realRepositoryPath,
+          PATH: logger.directory,
         },
       },
     );
@@ -846,8 +885,10 @@ test('OpenCode skill launcher uses the current project and OpenCode runtime back
       'opencode',
       '--walkthrough-file',
       walkthroughFile,
+      '--opencode-session',
+      sessionId,
       'HEAD',
-      realRepositoryPath,
+      realWorkingDirectory,
     ]);
   } finally {
     await logger.cleanup();
@@ -878,6 +919,38 @@ test('packaged terminal helper forwards the agent and Claude session to Electron
       sessionId,
       '--agent',
       'claude',
+      '--walkthrough',
+      repositoryPath,
+    ]);
+  } finally {
+    await logger.cleanup();
+  }
+});
+
+test('packaged terminal helper forwards the OpenCode session to Electron', async () => {
+  const logger = await createFakeOpenLogger();
+  const repositoryPath = join(logger.directory, 'repo');
+  const sessionId = 'ses_121b4816bffebMr9YE52O4870p';
+
+  try {
+    await mkdir(repositoryPath);
+
+    await execFileAsync(
+      resolve('bin/codiff-app'),
+      ['-w', '--agent', 'opencode', '--opencode-session', sessionId, repositoryPath],
+      {
+        env: logger.env,
+      },
+    );
+
+    expect(await logger.readArgs()).toEqual([
+      '-n',
+      resolve('bin/../../../..'),
+      '--args',
+      '--opencode-session',
+      sessionId,
+      '--agent',
+      'opencode',
       '--walkthrough',
       repositoryPath,
     ]);
@@ -927,6 +1000,7 @@ test('formatHelpText includes version and all flags', () => {
   expect(text).toContain('--version');
   expect(text).toContain('--commit');
   expect(text).toContain('--codex-session');
+  expect(text).toContain('--opencode-session');
   expect(text).toContain('--share');
   expect(text).toContain('--walkthrough');
   expect(text).toContain('--walkthrough-context');
@@ -958,6 +1032,8 @@ test('codiff-app prints help text and exits 0', async () => {
   expect(stdout).toContain('codiff v');
   expect(stdout).toContain('Usage:');
   expect(stdout).toContain('--help');
+  expect(stdout).toContain('--opencode-session <id>');
+  expect(stdout).not.toContain('--agent <codex|claude|opencode|pi>Override');
   expect(stdout).toContain('\u001b[1;34mUsage:\u001b[0m');
   expect(stdout).toContain('\u001b[90mShow this help message and exit.\u001b[0m');
 });

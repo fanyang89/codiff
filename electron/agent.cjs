@@ -6,6 +6,7 @@ const opencode = require('./opencode.cjs');
 const pi = require('./pi.cjs');
 const { readCodexSessionContext } = require('./codex-session-context.cjs');
 const { readClaudeSessionContext } = require('./claude-session-context.cjs');
+const { readOpenCodeSessionContext } = require('./opencode-session-context.cjs');
 const { readPiSessionContext } = require('./pi-session-context.cjs');
 
 /**
@@ -37,7 +38,7 @@ const { readPiSessionContext } = require('./pi-session-context.cjs');
  *     timeoutMessage?: string,
  *     options?: AgentOptions,
  *   ) => Promise<string>;
- *   readSessionContext: (sessionId: string | undefined) => WalkthroughContext | null;
+ *   readSessionContext: (sessionId: string | undefined) => Promise<WalkthroughContext | null> | WalkthroughContext | null;
  *   sessionLaunchOptionKey: 'codexSessionId' | 'claudeSessionId' | 'opencodeSessionId' | 'piSessionId';
  * }} Agent
  */
@@ -117,7 +118,7 @@ const createOpenCodeAgent = () => ({
     canResolveCommand(opencode.getOpenCodeCommand, opencode.isOpenCodeNotFoundError),
   isNotFoundError: opencode.isOpenCodeNotFoundError,
   run: opencode.runOpenCode,
-  readSessionContext: () => null,
+  readSessionContext: readOpenCodeSessionContext,
   sessionLaunchOptionKey: 'opencodeSessionId',
 });
 

@@ -449,6 +449,9 @@ const normalizeNarrativeWalkthrough = (input, files, facts = {}) => {
   };
 
   result.meta = `${stopCount} stops · ${chapters.length} chapters`;
+  if (facts.context && typeof facts.context === 'object') {
+    result.context = facts.context;
+  }
 
   // A commit composer only makes sense for a live staging set — never a past
   // commit, branch, or pull request. For working trees, always expose the

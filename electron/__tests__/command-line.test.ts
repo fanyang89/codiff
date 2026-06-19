@@ -55,9 +55,19 @@ const defaultLaunchOptions = {
 };
 
 test('parses the OpenCode agent override', () => {
-  expect(parseCommandLineArguments(['codiff', '--agent', 'opencode', '/repo'])).toMatchObject({
+  expect(
+    parseCommandLineArguments([
+      'codiff',
+      '--agent',
+      'opencode',
+      '--opencode-session',
+      'ses_121b4816bffebMr9YE52O4870p',
+      '/repo',
+    ]),
+  ).toMatchObject({
     launchOptions: {
       agentBackend: 'opencode',
+      opencodeSessionId: 'ses_121b4816bffebMr9YE52O4870p',
       repositoryPathProvided: true,
     },
   });

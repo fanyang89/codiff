@@ -35,6 +35,12 @@ export const flagDefinitions = [
   { description: 'Show this help message and exit.', name: 'help', short: 'h', type: 'boolean' },
   {
     argument: '<id>',
+    description: 'Attach OpenCode session metadata to a walkthrough.',
+    name: 'opencode-session',
+    type: 'string',
+  },
+  {
+    argument: '<id>',
     description: 'Attach Pi session metadata to a walkthrough.',
     name: 'pi-session',
     type: 'string',
@@ -221,6 +227,8 @@ export const parseArguments = (args) => {
     typeof values['codex-session'] === 'string' ? values['codex-session'] : null;
   const claudeSessionId =
     typeof values['claude-session'] === 'string' ? values['claude-session'] : null;
+  const opencodeSessionId =
+    typeof values['opencode-session'] === 'string' ? values['opencode-session'] : null;
   const piSessionId = typeof values['pi-session'] === 'string' ? values['pi-session'] : null;
   const agentBackend =
     values.agent === 'codex' ||
@@ -307,6 +315,7 @@ export const parseArguments = (args) => {
     ...(agentBackend ? { agentBackend } : {}),
     ...(claudeSessionId ? { claudeSessionId } : {}),
     ...(codexSessionId ? { codexSessionId } : {}),
+    ...(opencodeSessionId ? { opencodeSessionId } : {}),
     ...(piSessionId ? { piSessionId } : {}),
     ...(branchRef ? { branchRef } : {}),
     ...(range ? { range } : {}),

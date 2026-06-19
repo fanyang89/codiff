@@ -11,13 +11,15 @@
 // OpenCode working directory is used.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { accessSync, constants, existsSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 const skillRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const codiffRoot = resolve(skillRoot, '../../..');
+const sessionIdPattern = /^ses_[a-z0-9]{8,}$/i;
 
 const getCodiffCommand = () => {
   if (process.env.CODIFF_COMMAND) {
@@ -49,6 +51,101 @@ const getShareCommand = () =>
   process.env.CODIFF_SHARE_COMMAND
     ? { args: [], command: process.env.CODIFF_SHARE_COMMAND }
     : { args: [join(codiffRoot, 'bin/share-codiff.mjs')], command: process.execPath };
+
+const isExecutableFile = (path) => {
+  try {
+    return statSync(path).isFile() && (accessSync(path, constants.X_OK), true);
+  } catch {
+    return false;
+  }
+};
+
+const getExecutableNames = (command) => {
+  if (process.platform !== 'win32') {
+    return [command];
+  }
+
+  const extensions = (process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean);
+  return [command, ...extensions.map((extension) => `${command}${extension.toLowerCase()}`)];
+};
+
+const findExecutableOnPath = (command) => {
+  for (const directory of (process.env.PATH || '').split(delimiter)) {
+    if (!directory) {
+      continue;
+    }
+
+    for (const executable of getExecutableNames(command)) {
+      const candidate = join(directory, executable);
+      if (isExecutableFile(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return null;
+};
+
+const getOpenCodeCommand = () => {
+  const override = process.env.CODIFF_OPENCODE_PATH?.trim();
+  if (override) {
+    return override;
+  }
+
+  return (
+    findExecutableOnPath('opencode') ||
+    [
+      join(homedir(), '.opencode/bin/opencode'),
+      '/opt/homebrew/bin/opencode',
+      '/usr/local/bin/opencode',
+    ].find(isExecutableFile) ||
+    'opencode'
+  );
+};
+
+const findOpenCodeSessionIdForCwd = (cwd) => {
+  const result = spawnSync(
+    getOpenCodeCommand(),
+    ['session', 'list', '--format', 'json', '--max-count', '20', '--pure'],
+    {
+      cwd,
+      encoding: 'utf8',
+      timeout: 5000,
+    },
+  );
+  if (result.error || result.status !== 0) {
+    return null;
+  }
+
+  try {
+    const sessions = JSON.parse(result.stdout);
+    if (!Array.isArray(sessions)) {
+      return null;
+    }
+
+    const resolvedCwd = resolve(cwd);
+    const session = sessions.find((candidate) => {
+      if (
+        !candidate ||
+        typeof candidate !== 'object' ||
+        typeof candidate.id !== 'string' ||
+        !sessionIdPattern.test(candidate.id) ||
+        typeof candidate.directory !== 'string'
+      ) {
+        return false;
+      }
+
+      const relativeCwd = relative(resolve(candidate.directory), resolvedCwd);
+      return (
+        relativeCwd === '' ||
+        (!isAbsolute(relativeCwd) && relativeCwd !== '..' && !relativeCwd.startsWith(`..${sep}`))
+      );
+    });
+    return session?.id || null;
+  } catch {
+    return null;
+  }
+};
 
 const getSessionCwd = () => {
   const cwd = process.cwd();
@@ -151,6 +248,11 @@ const hasRepositoryTarget = forwardedArgs.some(
   (arg) => !arg.startsWith('-') && existsSync(resolve(sessionCwd, arg)),
 );
 
+const environmentSessionId = process.env.OPENCODE_SESSION_ID || '';
+const sessionId =
+  (sessionIdPattern.test(environmentSessionId) ? environmentSessionId : '') ||
+  findOpenCodeSessionIdForCwd(sessionCwd) ||
+  '';
 const codiffCommand = getCodiffCommand();
 const args = [
   ...codiffCommand.args,
@@ -159,6 +261,7 @@ const args = [
   'opencode',
   '--walkthrough-file',
   walkthroughFilePath,
+  ...(sessionId ? ['--opencode-session', sessionId] : []),
   ...forwardedArgs,
   ...(hasRepositoryTarget ? [] : [sessionCwd]),
 ];

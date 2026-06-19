@@ -1000,6 +1000,7 @@ ipcMain.handle('codiff:getNarrativeWalkthrough', async (event, source) => {
       repositoryPath,
       source || launchOptions?.source,
     );
+    const agent = resolveWindowAgent(event.sender.id);
     const walkthroughFile = launchOptions?.walkthroughFile;
     if (walkthroughFile) {
       let input;
@@ -1014,10 +1015,15 @@ ipcMain.handle('codiff:getNarrativeWalkthrough', async (event, source) => {
       }
 
       try {
+        const sessionContext = await Promise.resolve(
+          agent.readSessionContext(launchOptions?.[agent.sessionLaunchOptionKey]),
+        ).catch(() => null);
         return {
           status: 'ready',
           walkthrough: normalizeNarrativeWalkthrough(input, state.files, {
+            agent: agent.id,
             branch: state.branch,
+            context: sessionContext,
             generatedAt: state.generatedAt,
             root: state.root,
             source: state.source,
@@ -1040,10 +1046,9 @@ ipcMain.handle('codiff:getNarrativeWalkthrough', async (event, source) => {
       }
     }
 
-    const agent = resolveWindowAgent(event.sender.id);
     const walkthroughContext = mergeWalkthroughContexts(
       launchOptions?.walkthroughContext,
-      agent.readSessionContext(launchOptions?.[agent.sessionLaunchOptionKey]),
+      await agent.readSessionContext(launchOptions?.[agent.sessionLaunchOptionKey]),
     );
     return readNarrativeWalkthrough(
       state,

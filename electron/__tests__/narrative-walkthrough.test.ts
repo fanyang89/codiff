@@ -419,12 +419,23 @@ test('preserves Pi as the narrative walkthrough agent', () => {
 });
 
 test('preserves OpenCode as the narrative walkthrough agent', () => {
+  const context = {
+    messages: [{ role: 'user', text: 'Keep the OpenCode session linked.' }],
+    source: {
+      generatedAt: '2026-06-19T00:00:00.000Z',
+      threadId: 'ses_121b4816bffebMr9YE52O4870p',
+      type: 'opencode-session-excerpt',
+    },
+    version: 1,
+  };
   const result = normalizeNarrativeWalkthrough(baseInput(), files, {
     agent: 'opencode',
+    context,
     source: { type: 'working-tree' },
   });
 
   expect(result.agent).toBe('opencode');
+  expect(result.context).toBe(context);
 });
 
 test('generates ids for otherwise valid chapters that omit them', () => {

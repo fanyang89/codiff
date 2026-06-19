@@ -154,6 +154,9 @@ const parseCommandLineArguments = (commandLine = process.argv) => {
       'codex-session': {
         type: 'string',
       },
+      'opencode-session': {
+        type: 'string',
+      },
       'pi-session': {
         type: 'string',
       },
@@ -250,6 +253,7 @@ const parseCommandLineArguments = (commandLine = process.argv) => {
   const envReviewProvider = useEnvironment ? process.env.CODIFF_REVIEW_PROVIDER || '' : '';
   const envCodexSessionId = useEnvironment ? process.env.CODIFF_CODEX_SESSION_ID || '' : '';
   const envClaudeSessionId = useEnvironment ? process.env.CODIFF_CLAUDE_SESSION_ID || '' : '';
+  const envOpenCodeSessionId = useEnvironment ? process.env.CODIFF_OPENCODE_SESSION_ID || '' : '';
   const envPiSessionId = useEnvironment ? process.env.CODIFF_PI_SESSION_ID || '' : '';
   const envAgentBackend = useEnvironment ? process.env.CODIFF_AGENT_BACKEND || '' : '';
   const envWalkthroughContextPath = useEnvironment
@@ -263,6 +267,10 @@ const parseCommandLineArguments = (commandLine = process.argv) => {
   const claudeSessionId =
     (typeof values['claude-session'] === 'string' ? values['claude-session'] : '') ||
     envClaudeSessionId ||
+    undefined;
+  const opencodeSessionId =
+    (typeof values['opencode-session'] === 'string' ? values['opencode-session'] : '') ||
+    envOpenCodeSessionId ||
     undefined;
   const piSessionId =
     (typeof values['pi-session'] === 'string' ? values['pi-session'] : '') ||
@@ -302,6 +310,7 @@ const parseCommandLineArguments = (commandLine = process.argv) => {
       ...(agentBackend ? { agentBackend } : {}),
       ...(claudeSessionId ? { claudeSessionId } : {}),
       ...(codexSessionId ? { codexSessionId } : {}),
+      ...(opencodeSessionId ? { opencodeSessionId } : {}),
       ...(piSessionId ? { piSessionId } : {}),
       repositoryPathProvided,
       source:

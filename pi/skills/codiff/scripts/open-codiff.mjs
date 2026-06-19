@@ -11,8 +11,9 @@
 // (commit, HEAD, PR number, or repository path) is forwarded verbatim; when no repository
 // path is given the session's working directory is used.
 
+import { Buffer } from 'node:buffer';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
@@ -23,6 +24,7 @@ const skillRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const codiffRoot = resolve(skillRoot, '../../..');
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const maxSessionScanFiles = 20_000;
+const maxSessionHeaderBytes = 64 * 1024;
 
 const getCodiffCommand = () => {
   if (process.env.CODIFF_COMMAND) {
@@ -57,6 +59,28 @@ const getShareCommand = () =>
 
 const getPiHome = () => process.env.PI_HOME || join(homedir(), '.pi');
 
+const readSessionHeader = (path) => {
+  let file;
+  try {
+    file = openSync(path, 'r');
+    const buffer = Buffer.allocUnsafe(maxSessionHeaderBytes);
+    const bytesRead = readSync(file, buffer, 0, buffer.length, 0);
+    const text = buffer.toString('utf8', 0, bytesRead);
+    const newline = text.indexOf('\n');
+    return newline === -1 ? text : text.slice(0, newline);
+  } catch {
+    return '';
+  } finally {
+    if (file != null) {
+      try {
+        closeSync(file);
+      } catch {
+        // Best-effort cleanup in the short-lived launcher process.
+      }
+    }
+  }
+};
+
 /**
  * Pi stores sessions at ~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl
  * Since Pi does not expose a PI_SESSION_ID env var, we scan the sessions directory
@@ -88,12 +112,13 @@ const findPiSessionIdForCwd = (cwd) => {
       continue;
     }
 
+    const directories = [];
     for (const entry of entries) {
       scanned += 1;
       const path = join(directory, entry.name);
       if (entry.isFile() && path.endsWith('.jsonl')) {
         try {
-          const firstLine = readFileSync(path, 'utf8').split('\n')[0];
+          const firstLine = readSessionHeader(path);
           if (!firstLine) {
             continue;
           }
@@ -114,13 +139,14 @@ const findPiSessionIdForCwd = (cwd) => {
       }
 
       if (entry.isDirectory()) {
-        stack.push(path);
+        directories.push(path);
       }
 
       if (scanned >= maxSessionScanFiles) {
         break;
       }
     }
+    stack.push(...directories.reverse());
   }
 
   if (candidates.length === 0) {

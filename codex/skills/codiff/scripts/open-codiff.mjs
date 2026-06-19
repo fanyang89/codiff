@@ -11,8 +11,9 @@
 // (commit, HEAD, PR number, or repository path) is forwarded verbatim; when no repository
 // path is given the session's working directory is used.
 
+import { Buffer } from 'node:buffer';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, openSync, readSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
@@ -23,6 +24,7 @@ const skillRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const codiffRoot = resolve(skillRoot, '../../..');
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const maxSessionScanFiles = 20_000;
+const maxSessionReadBytes = 16 * 1024 * 1024;
 
 const getCodiffCommand = () => {
   if (process.env.CODIFF_COMMAND) {
@@ -80,6 +82,7 @@ const findCodexSessionFile = (sessionId) => {
       continue;
     }
 
+    const directories = [];
     for (const entry of entries) {
       scanned += 1;
       const path = join(directory, entry.name);
@@ -91,15 +94,58 @@ const findCodexSessionFile = (sessionId) => {
         return path;
       }
       if (entry.isDirectory()) {
-        stack.push(path);
+        directories.push(path);
       }
       if (scanned >= maxSessionScanFiles) {
         break;
       }
     }
+    stack.push(...directories.reverse());
   }
 
   return null;
+};
+
+const readSessionTail = (path) => {
+  let file;
+  try {
+    file = openSync(path, 'r');
+    const size = fstatSync(file).size;
+    const length = Math.min(size, maxSessionReadBytes);
+    const offset = size - length;
+    const buffer = Buffer.allocUnsafe(length);
+    let bytesRead = 0;
+    while (bytesRead < length) {
+      const count = readSync(file, buffer, bytesRead, length - bytesRead, offset + bytesRead);
+      if (count === 0) {
+        break;
+      }
+      bytesRead += count;
+    }
+
+    const text = buffer.toString('utf8', 0, bytesRead);
+    if (offset === 0) {
+      return text;
+    }
+
+    const precedingByte = Buffer.allocUnsafe(1);
+    if (readSync(file, precedingByte, 0, 1, offset - 1) === 1 && precedingByte[0] === 0x0a) {
+      return text;
+    }
+
+    const firstCompleteLine = text.indexOf('\n');
+    return firstCompleteLine === -1 ? '' : text.slice(firstCompleteLine + 1);
+  } catch {
+    return '';
+  } finally {
+    if (file != null) {
+      try {
+        closeSync(file);
+      } catch {
+        // Best-effort cleanup in the short-lived launcher process.
+      }
+    }
+  }
 };
 
 const readSessionCwd = (sessionId) => {
@@ -109,7 +155,7 @@ const readSessionCwd = (sessionId) => {
   }
 
   let cwd = null;
-  for (const line of readFileSync(sessionPath, 'utf8').split('\n')) {
+  for (const line of readSessionTail(sessionPath).split('\n')) {
     if (!line.trim()) {
       continue;
     }

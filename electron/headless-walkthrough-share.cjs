@@ -163,6 +163,7 @@ const shareWalkthroughFile = async ({
  *   codexSessionId?: string;
  *   codiffVersion: string;
  *   openExternal: (url: string) => Promise<void>;
+ *   opencodeSessionId?: string;
  *   piSessionId?: string;
  *   repositoryPath: string;
  *   serviceUrlOverride?: string;
@@ -176,6 +177,7 @@ const generateAndShareWalkthrough = async ({
   codexSessionId,
   codiffVersion,
   openExternal,
+  opencodeSessionId,
   piSessionId,
   repositoryPath,
   serviceUrlOverride,
@@ -188,13 +190,13 @@ const generateAndShareWalkthrough = async ({
   const sessionIds = {
     claudeSessionId,
     codexSessionId,
-    opencodeSessionId: undefined,
+    opencodeSessionId,
     piSessionId,
   };
   const providedContext = walkthroughContextPath
     ? readWalkthroughContext(walkthroughContextPath, codexSessionId)
     : null;
-  const sessionContext = agent.readSessionContext(sessionIds[agent.sessionLaunchOptionKey]);
+  const sessionContext = await agent.readSessionContext(sessionIds[agent.sessionLaunchOptionKey]);
   const result = await readNarrativeWalkthrough(
     state,
     agent,
