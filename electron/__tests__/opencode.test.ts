@@ -12,9 +12,11 @@ const {
   OPENCODE_NOT_FOUND_CODE,
   OPENCODE_TIMEOUT_MS,
   getOpenCodeCommand,
+  isOpenCodeModelAvailabilityError,
   isOpenCodeNotFoundError,
   normalizeOpenCodeModel,
   normalizeOpenCodeOutput,
+  renderOpenCodeCommand,
   runOpenCode,
 } = require('../opencode.cjs') as {
   DEFAULT_OPENCODE_MODEL: string;
@@ -23,28 +25,77 @@ const {
   OPENCODE_NOT_FOUND_CODE: string;
   OPENCODE_TIMEOUT_MS: number;
   getOpenCodeCommand: () => string;
+  isOpenCodeModelAvailabilityError: (value: unknown) => boolean;
   isOpenCodeNotFoundError: (error: unknown) => boolean;
   normalizeOpenCodeModel: (value: unknown) => string;
   normalizeOpenCodeOutput: (output: string, schema: unknown) => string;
+  renderOpenCodeCommand: (template: string, model: unknown) => string;
   runOpenCode: (
     repoRoot: string,
     prompt: string,
     schema: unknown,
     outputName?: string,
     timeoutMessage?: string,
-    options?: { model?: string },
+    options?: {
+      fallbackModel?: string;
+      model?: string;
+      onModelFallback?: (fallbackModel: string, originalModel: string) => void;
+    },
   ) => Promise<string>;
 };
 
-test('exposes the OpenCode configured default model', () => {
+test('exposes selectable OpenCode models while keeping its configured default', () => {
   expect(DEFAULT_OPENCODE_MODEL).toBe('opencode-default');
   expect(FALLBACK_OPENCODE_MODEL).toBe(DEFAULT_OPENCODE_MODEL);
   expect(OPENCODE_TIMEOUT_MS).toBe(300_000);
   expect(OPENCODE_MODELS).toEqual([
     { id: DEFAULT_OPENCODE_MODEL, label: 'OpenCode configured default' },
+    { id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+    { id: 'openai/gpt-5.5', label: 'GPT-5.5' },
   ]);
   expect(normalizeOpenCodeModel(DEFAULT_OPENCODE_MODEL)).toBe(DEFAULT_OPENCODE_MODEL);
-  expect(normalizeOpenCodeModel('openai/gpt-5')).toBe(DEFAULT_OPENCODE_MODEL);
+  expect(normalizeOpenCodeModel('openai/gpt-5.5')).toBe('openai/gpt-5.5');
+  expect(normalizeOpenCodeModel('custom-provider/custom-model')).toBe(
+    'custom-provider/custom-model',
+  );
+  expect(normalizeOpenCodeModel('amazon-bedrock/anthropic.claude-sonnet-v1:0')).toBe(
+    'amazon-bedrock/anthropic.claude-sonnet-v1:0',
+  );
+  expect(normalizeOpenCodeModel('ollama/gpt-oss:120b')).toBe('ollama/gpt-oss:120b');
+  expect(normalizeOpenCodeModel('openrouter/deepseek/deepseek-r1:free')).toBe(
+    'openrouter/deepseek/deepseek-r1:free',
+  );
+  expect(normalizeOpenCodeModel('../../sessions')).toBe(DEFAULT_OPENCODE_MODEL);
+});
+
+test('renders the selected model into the managed OpenCode command', () => {
+  const template = '---\n{{CODIFF_OPENCODE_MODEL}}\n---\nRun Codiff.\n';
+
+  expect(renderOpenCodeCommand(template, DEFAULT_OPENCODE_MODEL)).toBe('---\n\n---\nRun Codiff.\n');
+  expect(renderOpenCodeCommand(template, 'anthropic/claude-sonnet-4-6')).toBe(
+    '---\nmodel: anthropic/claude-sonnet-4-6\n---\nRun Codiff.\n',
+  );
+  expect(() => renderOpenCodeCommand('Run Codiff.\n', DEFAULT_OPENCODE_MODEL)).toThrow(
+    'exactly one',
+  );
+  expect(() =>
+    renderOpenCodeCommand(
+      '{{CODIFF_OPENCODE_MODEL}}\n{{CODIFF_OPENCODE_MODEL}}\n',
+      DEFAULT_OPENCODE_MODEL,
+    ),
+  ).toThrow('exactly one');
+});
+
+test('detects OpenCode model availability errors', () => {
+  expect(isOpenCodeModelAvailabilityError('Model not found: anthropic/missing')).toBe(true);
+  expect(isOpenCodeModelAvailabilityError('ProviderModelNotFoundError')).toBe(true);
+  expect(isOpenCodeModelAvailabilityError('unknown model anthropic/missing')).toBe(true);
+  expect(isOpenCodeModelAvailabilityError('You do not have access to model openai/gpt-5.5')).toBe(
+    true,
+  );
+  expect(isOpenCodeModelAvailabilityError('provider capacity exceeded')).toBe(false);
+  expect(isOpenCodeModelAvailabilityError('repository request returned 404')).toBe(false);
+  expect(isOpenCodeModelAvailabilityError('model request returned status 404')).toBe(true);
 });
 
 test('detects OpenCode-not-found errors and invalid overrides', () => {
@@ -124,6 +175,71 @@ process.stdin.on('end', () => {
     expect(stdin).toContain('prompt');
     expect(stdin).toContain('Follow this JSON Schema exactly');
     expect(stdin).toContain('"required":["version"]');
+  } finally {
+    if (previousOpenCodePath == null) {
+      delete process.env.CODIFF_OPENCODE_PATH;
+    } else {
+      process.env.CODIFF_OPENCODE_PATH = previousOpenCodePath;
+    }
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+test('passes explicit models to OpenCode and falls back when they are unavailable', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'codiff-opencode-model-'));
+  const fakeOpenCodePath = join(directory, 'opencode');
+  const argsPath = join(directory, 'args.txt');
+  const previousOpenCodePath = process.env.CODIFF_OPENCODE_PATH;
+
+  try {
+    await writeFile(
+      fakeOpenCodePath,
+      `#!/usr/bin/env node
+const { appendFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args) + '\\n');
+if (args.includes('--model')) {
+  process.stderr.write('Model not found: anthropic/claude-sonnet-4-6');
+  process.exit(1);
+}
+process.stdin.resume();
+process.stdin.on('end', () => {
+  process.stdout.write(JSON.stringify({
+    type: 'text',
+    part: { id: 'answer', text: '{"version":1}' },
+  }) + '\\n');
+});
+`,
+    );
+    await chmod(fakeOpenCodePath, 0o755);
+    process.env.CODIFF_OPENCODE_PATH = fakeOpenCodePath;
+    const fallbacks: Array<[string, string]> = [];
+
+    await expect(
+      runOpenCode(
+        directory,
+        'prompt',
+        { required: ['version'], type: 'object' },
+        undefined,
+        undefined,
+        {
+          fallbackModel: DEFAULT_OPENCODE_MODEL,
+          model: 'anthropic/claude-sonnet-4-6',
+          onModelFallback: (fallbackModel, originalModel) => {
+            fallbacks.push([fallbackModel, originalModel]);
+          },
+        },
+      ),
+    ).resolves.toBe('{"version":1}');
+
+    const calls = (await readFile(argsPath, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain('anthropic/claude-sonnet-4-6');
+    expect(calls[1]).not.toContain('--model');
+    expect(fallbacks).toEqual([[DEFAULT_OPENCODE_MODEL, 'anthropic/claude-sonnet-4-6']]);
   } finally {
     if (previousOpenCodePath == null) {
       delete process.env.CODIFF_OPENCODE_PATH;

@@ -124,6 +124,7 @@ counts; when it is `false`, Codiff hides those changes from the working-tree rev
     "editorCommand": "",
     "lastRepositoryPath": "",
     "openAIModel": "gpt-5.3-codex-spark",
+    "opencodeModel": "opencode-default",
     "showWhitespace": false,
     "theme": "system",
     "walkthroughPrompt": "",
@@ -171,7 +172,8 @@ application menu:
 
 - `codex` (default) — the OpenAI Codex CLI, configured with `settings.openAIModel`.
 - `claude` — the [Claude Code](https://claude.com/claude-code) CLI, configured with `settings.claudeModel`.
-- `opencode` — the [OpenCode](https://opencode.ai/) CLI, using its configured default model.
+- `opencode` — the [OpenCode](https://opencode.ai/) CLI, configured with
+  `settings.opencodeModel`.
 - `pi` — the Pi CLI, using its configured default model.
 
 Install the backend you want and verify it is available before using `codiff -w`:
@@ -197,17 +199,30 @@ CODIFF_PI_PATH=/absolute/path/to/pi codiff --agent pi -w
 Claude Code rides your existing `claude` login (subscription or `ANTHROPIC_API_KEY`); run `claude`
 once and complete `/login` if you have not already.
 
+OpenCode keeps its own configured model when `settings.opencodeModel` is `opencode-default`.
+Choose another model from the application `Model` menu, or set a provider-qualified id such as
+`anthropic/claude-sonnet-4-6`, `openai/gpt-5.5`, or another model available to your OpenCode
+account. When Codiff launches OpenCode for walkthroughs or review assistance and an explicit model
+is unavailable, it retries with OpenCode's configured default and persists that fallback. The
+managed `/codiff` command runs directly in OpenCode, so OpenCode reports access errors for its
+selected model; choose `opencode-default` when portability is more important than pinning.
+
 Set `settings.walkthroughPrompt` to add custom instructions to generated walkthrough prompts. Use it
 to request a specific language, tone, or level of detail while Codiff keeps its walkthrough guide,
 hunk ids, review-order constraints, and JSON schema in place.
 
-To drive Codiff from your agent, install its skill from the application menu under
+To drive Codiff from your agent, install its integration from the application menu under
 `Install Skill`, then choose Codex, Claude Code, Pi, or OpenCode. Codiff updates keep the installed
-skill current. Invoke it from the agent:
+skill current. The OpenCode integration also installs a managed `/codiff` command that uses
+`settings.opencodeModel`; choosing `opencode-default` leaves the command unpinned. Invoke it from
+the agent:
 
 ```text
 $codiff       /codiff        # author a narrative walkthrough and open Codiff
 ```
+
+In OpenCode, `/codiff` uses the model selected in Codiff while `$codiff` runs as part of the
+current session and therefore uses that session's active model.
 
 `codiff` asks Codiff for the current authoring guide (`codiff --walkthrough-guide`), writes a
 narrative walkthrough JSON to a temporary file, and opens Codiff on it with `--walkthrough-file`

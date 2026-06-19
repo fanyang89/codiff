@@ -7,7 +7,6 @@ const {
   buildSchemaReminder,
   findExecutableOnPath,
   isExecutableFile,
-  normalizeEnum,
   normalizeStructuredOutput,
   oneLine,
 } = require('./agent-shared.cjs');
@@ -15,6 +14,7 @@ const {
 const OPENCODE_TIMEOUT_MS = 300_000;
 const DEFAULT_OPENCODE_MODEL = 'opencode-default';
 const FALLBACK_OPENCODE_MODEL = DEFAULT_OPENCODE_MODEL;
+const OPENCODE_COMMAND_MODEL_PLACEHOLDER = '{{CODIFF_OPENCODE_MODEL}}';
 const OPENCODE_NOT_FOUND_CODE = 'OPENCODE_NOT_FOUND';
 const OPENCODE_NOT_FOUND_MESSAGE =
   'OpenCode CLI was not found. Install OpenCode and verify `opencode --version` works in Terminal. Codiff searches PATH, ~/.opencode/bin/opencode, /opt/homebrew/bin/opencode, and /usr/local/bin/opencode. If OpenCode is installed somewhere else, launch Codiff with `CODIFF_OPENCODE_PATH=/absolute/path/to/opencode codiff -w`.';
@@ -22,8 +22,10 @@ const OPENCODE_NOT_FOUND_MESSAGE =
 /** @type {ReadonlyArray<{id: string; label: string}>} */
 const OPENCODE_MODELS = Object.freeze([
   { id: DEFAULT_OPENCODE_MODEL, label: 'OpenCode configured default' },
+  { id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { id: 'openai/gpt-5.5', label: 'GPT-5.5' },
 ]);
-const OPENCODE_MODEL_IDS = new Set(OPENCODE_MODELS.map((model) => model.id));
+const OPENCODE_MODEL_PATTERN = /^[a-z0-9][a-z0-9._:-]*(?:\/[@a-z0-9][@a-z0-9._:-]*)+$/i;
 
 /** @param {string} [detail] */
 const createOpenCodeNotFoundError = (detail) =>
@@ -81,8 +83,33 @@ const getOpenCodeLaunchError = (error) => {
 };
 
 /** @param {unknown} value @returns {string} */
-const normalizeOpenCodeModel = (value) =>
-  normalizeEnum(value, OPENCODE_MODEL_IDS, DEFAULT_OPENCODE_MODEL);
+const normalizeOpenCodeModel = (value) => {
+  const model = typeof value === 'string' ? value.trim() : '';
+  return model === DEFAULT_OPENCODE_MODEL || OPENCODE_MODEL_PATTERN.test(model)
+    ? model
+    : DEFAULT_OPENCODE_MODEL;
+};
+
+/** @param {unknown} value */
+const isOpenCodeModelAvailabilityError = (value) =>
+  /\b(?:ProviderModelNotFoundError|model[_ ]not[_ ]found|unknown model|invalid model|model is not available|not available for|not supported|does not have access|do not have access|don't have access|access to model)\b/i.test(
+    String(value ?? ''),
+  ) ||
+  /(?:\bmodel\b.{0,80}\b(?:403|404)\b|\b(?:403|404)\b.{0,80}\bmodel\b)/i.test(String(value ?? ''));
+
+/** @param {string} template @param {unknown} model */
+const renderOpenCodeCommand = (template, model) => {
+  const placeholderCount = template.split(OPENCODE_COMMAND_MODEL_PLACEHOLDER).length - 1;
+  if (placeholderCount !== 1) {
+    throw new Error(
+      `The OpenCode command template must contain exactly one ${OPENCODE_COMMAND_MODEL_PLACEHOLDER} placeholder.`,
+    );
+  }
+
+  const normalizedModel = normalizeOpenCodeModel(model);
+  const modelLine = normalizedModel === DEFAULT_OPENCODE_MODEL ? '' : `model: ${normalizedModel}`;
+  return template.replace(OPENCODE_COMMAND_MODEL_PLACEHOLDER, modelLine);
+};
 
 /** @param {string} output @returns {string} */
 const readOpenCodeText = (output) => {
@@ -117,7 +144,12 @@ const normalizeOpenCodeOutput = (output, schema) =>
  * @param {unknown} schema
  * @param {string} [_outputName]
  * @param {string} [timeoutMessage]
- * @param {{model?: string; onPartialText?: (delta: string) => void}} [options]
+ * @param {{
+ *   fallbackModel?: string;
+ *   model?: string;
+ *   onModelFallback?: (fallbackModel: string, originalModel: string) => Promise<void> | void;
+ *   onPartialText?: (delta: string) => void;
+ * }} [options]
  */
 const runOpenCode = async (
   repoRoot,
@@ -128,91 +160,107 @@ const runOpenCode = async (
   options = {},
 ) => {
   const model = normalizeOpenCodeModel(options.model);
+  const fallbackModel = normalizeOpenCodeModel(options.fallbackModel || FALLBACK_OPENCODE_MODEL);
   const effectivePrompt = `${prompt}${buildSchemaReminder(schema)}`;
 
-  return await /** @type {Promise<string>} */ (
-    new Promise((resolve, reject) => {
-      let stderr = '';
-      /** @type {Error | null} */
-      let stdinError = null;
-      let stdout = '';
-      let finished = false;
+  /** @param {string} openCodeModel */
+  const invokeOpenCode = (openCodeModel) =>
+    /** @type {Promise<string>} */ (
+      new Promise((resolve, reject) => {
+        let stderr = '';
+        /** @type {Error | null} */
+        let stdinError = null;
+        let stdout = '';
+        let finished = false;
 
-      const opencodeCommand = getOpenCodeCommand();
-      const opencodeArgs = [
-        'run',
-        '--format',
-        'json',
-        '--pure',
-        '--agent',
-        'build',
-        '--dir',
-        repoRoot,
-        ...(model === DEFAULT_OPENCODE_MODEL ? [] : ['--model', model]),
-      ];
-      const child = spawn(opencodeCommand, opencodeArgs, {
-        cwd: repoRoot,
-        env: {
-          ...process.env,
-          OPENCODE_PERMISSION: JSON.stringify({ '*': 'deny' }),
-        },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+        const opencodeCommand = getOpenCodeCommand();
+        const opencodeArgs = [
+          'run',
+          '--format',
+          'json',
+          '--pure',
+          '--agent',
+          'build',
+          '--dir',
+          repoRoot,
+          ...(openCodeModel === DEFAULT_OPENCODE_MODEL ? [] : ['--model', openCodeModel]),
+        ];
+        const child = spawn(opencodeCommand, opencodeArgs, {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            OPENCODE_PERMISSION: JSON.stringify({ '*': 'deny' }),
+          },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
 
-      const timer = setTimeout(() => {
-        if (!finished) {
+        const timer = setTimeout(() => {
+          if (!finished) {
+            finished = true;
+            child.kill('SIGTERM');
+            reject(new Error(timeoutMessage));
+          }
+        }, OPENCODE_TIMEOUT_MS);
+
+        child.stdout.on('data', (chunk) => {
+          stdout += chunk.toString();
+        });
+        child.stderr.on('data', (chunk) => {
+          stderr += chunk.toString();
+        });
+        child.stdin.on('error', (error) => {
+          stdinError = error;
+        });
+        child.on('error', (error) => {
           finished = true;
-          child.kill('SIGTERM');
-          reject(new Error(timeoutMessage));
-        }
-      }, OPENCODE_TIMEOUT_MS);
+          clearTimeout(timer);
+          reject(getOpenCodeLaunchError(error));
+        });
+        child.on('close', (code, signal) => {
+          if (finished) {
+            return;
+          }
 
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk.toString();
-      });
-      child.stderr.on('data', (chunk) => {
-        stderr += chunk.toString();
-      });
-      child.stdin.on('error', (error) => {
-        stdinError = error;
-      });
-      child.on('error', (error) => {
-        finished = true;
-        clearTimeout(timer);
-        reject(getOpenCodeLaunchError(error));
-      });
-      child.on('close', (code, signal) => {
-        if (finished) {
-          return;
-        }
+          finished = true;
+          clearTimeout(timer);
 
-        finished = true;
-        clearTimeout(timer);
-
-        if (code !== 0) {
-          reject(
-            new Error(
-              oneLine(
-                stderr || stdout || stdinError?.message,
-                signal
-                  ? `OpenCode was terminated by ${signal}.`
-                  : `OpenCode exited with code ${code}.`,
+          if (code !== 0) {
+            reject(
+              new Error(
+                oneLine(
+                  stderr || stdout || stdinError?.message,
+                  signal
+                    ? `OpenCode was terminated by ${signal}.`
+                    : `OpenCode exited with code ${code}.`,
+                ),
               ),
-            ),
-          );
-          return;
-        }
+            );
+            return;
+          }
 
-        try {
-          resolve(normalizeOpenCodeOutput(stdout, schema));
-        } catch (error) {
-          reject(error);
-        }
-      });
+          try {
+            resolve(normalizeOpenCodeOutput(stdout, schema));
+          } catch (error) {
+            reject(error);
+          }
+        });
 
-      child.stdin.end(effectivePrompt, () => {});
-    })
-  );
+        child.stdin.end(effectivePrompt, () => {});
+      })
+    );
+
+  try {
+    return await invokeOpenCode(model);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (model === fallbackModel || !isOpenCodeModelAvailabilityError(message)) {
+      throw error;
+    }
+
+    const response = await invokeOpenCode(fallbackModel);
+    await options.onModelFallback?.(fallbackModel, model);
+    return response;
+  }
 };
 
 module.exports = {
@@ -223,9 +271,11 @@ module.exports = {
   OPENCODE_NOT_FOUND_MESSAGE,
   OPENCODE_TIMEOUT_MS,
   getOpenCodeCommand,
+  isOpenCodeModelAvailabilityError,
   isOpenCodeNotFoundError,
   normalizeOpenCodeModel,
   normalizeOpenCodeOutput,
   readOpenCodeText,
+  renderOpenCodeCommand,
   runOpenCode,
 };

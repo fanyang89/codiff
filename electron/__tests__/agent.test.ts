@@ -7,6 +7,7 @@ const {
   DEFAULT_AGENT_BACKEND,
   detectInitialAgentBackend,
   getAgent,
+  getAgentMenuModels,
   listAgents,
   normalizeAgentBackend,
 } = require('../agent.cjs') as {
@@ -19,12 +20,17 @@ const {
     id: string;
     isAvailable: () => boolean;
     label: string;
+    models: ReadonlyArray<{ id: string; label: string }>;
     modelSettingKey: string;
     sessionLaunchOptionKey: string;
     notFoundCode: string;
     run: unknown;
     readSessionContext: unknown;
   };
+  getAgentMenuModels: (
+    agent: ReturnType<typeof getAgent>,
+    selectedModel: string,
+  ) => ReadonlyArray<{ id: string; label: string }>;
   listAgents: () => ReadonlyArray<{ id: string }>;
   normalizeAgentBackend: (value: unknown) => string;
 };
@@ -98,6 +104,16 @@ test('resolves the OpenCode agent with its runtime wiring', () => {
   expect(agent.notFoundCode).toBe('OPENCODE_NOT_FOUND');
   expect(typeof agent.run).toBe('function');
   expect(typeof agent.readSessionContext).toBe('function');
+});
+
+test('shows a custom configured model in the agent model menu', () => {
+  const agent = getAgent('opencode');
+
+  expect(getAgentMenuModels(agent, 'anthropic/claude-sonnet-4-6')).toBe(agent.models);
+  expect(getAgentMenuModels(agent, 'cloudflare/custom-model')).toEqual([
+    ...agent.models,
+    { id: 'cloudflare/custom-model', label: 'Custom: cloudflare/custom-model' },
+  ]);
 });
 
 test('falls back to the default backend for unknown ids', () => {

@@ -66,7 +66,7 @@
         "opencodeModel": {
           "type": "string",
           "default": "opencode-default",
-          "description": "Use OpenCode's configured default model for review assistance and walkthroughs when agentBackend is 'opencode'."
+          "description": "The OpenCode model to use for review assistance, walkthroughs, and the managed /codiff command when agentBackend is 'opencode'. Use 'opencode-default' to preserve OpenCode's configured default, or a provider-qualified model id such as 'anthropic/claude-sonnet-4-6'."
         },
         "piModel": {
           "type": "string",

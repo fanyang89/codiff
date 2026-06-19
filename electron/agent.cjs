@@ -162,6 +162,16 @@ const getAgent = (backendId) => AGENT_FACTORIES[normalizeAgentBackend(backendId)
 const listAgents = () => AGENT_BACKENDS.map((id) => AGENT_FACTORIES[id]());
 
 /**
+ * @param {Agent} agent
+ * @param {string} selectedModel
+ * @returns {ReadonlyArray<{id: string; label: string}>}
+ */
+const getAgentMenuModels = (agent, selectedModel) =>
+  agent.models.some((model) => model.id === selectedModel)
+    ? agent.models
+    : [...agent.models, { id: selectedModel, label: `Custom: ${selectedModel}` }];
+
+/**
  * Select the first installed backend without launching a CLI process.
  * @param {(agent: Agent) => boolean} [isAvailable]
  * @returns {'codex' | 'claude' | 'opencode' | 'pi'}
@@ -173,6 +183,7 @@ module.exports = {
   AGENT_BACKENDS,
   DEFAULT_AGENT_BACKEND,
   detectInitialAgentBackend,
+  getAgentMenuModels,
   getAgent,
   listAgents,
   normalizeAgentBackend,

@@ -29,7 +29,7 @@ const {
 } = require('./git-state.cjs');
 const { normalizeOpenAIModel } = require('./codex.cjs');
 const { normalizeClaudeModel } = require('./claude.cjs');
-const { normalizeOpenCodeModel } = require('./opencode.cjs');
+const { normalizeOpenCodeModel, renderOpenCodeCommand } = require('./opencode.cjs');
 const { createWalkthroughCommit } = require('./walkthrough-commit.cjs');
 const { diagnoseWalkthroughMismatch } = require('./walkthrough-diagnosis.cjs');
 const { readCommitMessageReply } = require('./walkthrough-commit-message.cjs');
@@ -37,6 +37,7 @@ const { normalizePiModel } = require('./pi.cjs');
 const {
   detectInitialAgentBackend,
   getAgent,
+  getAgentMenuModels,
   listAgents,
   normalizeAgentBackend,
 } = require('./agent.cjs');
@@ -121,11 +122,25 @@ const skillInstallers = new Map(
     createSkillInstaller({
       app,
       dialog,
+      renderManagedFile:
+        skill.id === 'opencode'
+          ? (_file, template) => renderOpenCodeCommand(template, config.settings.opencodeModel)
+          : undefined,
       root,
       skill,
     }),
   ]),
 );
+
+const refreshInstalledAgentFiles = () => {
+  for (const installer of skillInstallers.values()) {
+    try {
+      installer.refreshManagedFiles();
+    } catch {
+      // A stale or read-only managed file should not prevent Codiff from starting.
+    }
+  }
+};
 
 const getActiveAgent = () => getAgent(config.settings.agentBackend);
 
@@ -200,6 +215,7 @@ const updateConfig = (nextConfig) => {
   };
   nativeTheme.themeSource = config.settings.theme;
   writeConfig(config);
+  refreshInstalledAgentFiles();
   sendConfigChanged();
   Menu.setApplicationMenu(buildApplicationMenu());
 };
@@ -368,8 +384,9 @@ const buildAgentSubmenu = () =>
 /** @returns {Array<import('electron').MenuItemConstructorOptions>} */
 const buildModelSubmenu = () => {
   const agent = getActiveAgent();
-  return agent.models.map((model) => ({
-    checked: config.settings[agent.modelSettingKey] === model.id,
+  const selectedModel = config.settings[agent.modelSettingKey];
+  return getAgentMenuModels(agent, selectedModel).map((model) => ({
+    checked: selectedModel === model.id,
     click: () => selectAgentModel(agent, model.id),
     label: model.label,
     type: 'radio',
@@ -863,6 +880,7 @@ if (squirrelStartup || !lock) {
     if (shouldDetectInitialAgent) {
       writeConfig(config);
     }
+    refreshInstalledAgentFiles();
     nativeTheme.themeSource = config.settings.theme;
     Menu.setApplicationMenu(buildApplicationMenu());
 
@@ -886,6 +904,7 @@ if (squirrelStartup || !lock) {
           piModel: normalizePiModel(nextConfig.settings.piModel),
         },
       };
+      refreshInstalledAgentFiles();
       nativeTheme.themeSource = config.settings.theme;
       sendConfigChanged();
       Menu.setApplicationMenu(buildApplicationMenu());

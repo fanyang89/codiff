@@ -3,7 +3,14 @@
 /**
  * @typedef {'codex' | 'claude' | 'opencode' | 'pi'} AgentSkillId
  * @typedef {{
+ *   legacyManagedMarkers?: ReadonlyArray<string>;
+ *   managedMarker: string;
+ *   sourceSubdir: string;
+ *   targetSubdir: string;
+ * }} AgentSkillFile
+ * @typedef {{
  *   agentLabel: string;
+ *   files?: ReadonlyArray<AgentSkillFile>;
  *   id: AgentSkillId;
  *   label: string;
  *   targets: ReadonlyArray<{sourceSubdir: string; targetSubdir: string}>;
@@ -32,6 +39,16 @@ const AGENT_SKILLS = Object.freeze([
   },
   {
     agentLabel: 'OpenCode',
+    files: [
+      {
+        legacyManagedMarkers: [
+          '<!-- Managed by Codiff. Reinstall the OpenCode integration instead of editing this file. -->',
+        ],
+        managedMarker: '<!-- codiff-managed-opencode-command:v1 -->',
+        sourceSubdir: 'opencode/commands/codiff.md',
+        targetSubdir: '.config/opencode/commands/codiff.md',
+      },
+    ],
     id: 'opencode',
     label: 'OpenCode Skill',
     targets: [

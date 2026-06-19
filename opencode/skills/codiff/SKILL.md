@@ -71,7 +71,9 @@ change. Codiff owns the format and authoring guidance, so this skill only handle
 
    **Agent integration:** Desktop launches link the most recent OpenCode session for the current
    project and run Codiff with the OpenCode backend. The launcher's `--share` path retains OpenCode
-   as the authoring agent without attaching the conversation transcript.
+   as the authoring agent without attaching the conversation transcript. Codiff's managed
+   `/codiff` command can use the OpenCode model selected in Codiff; direct `$codiff` skill mentions
+   continue with the current session model.
 
    Codiff validates and repairs the document against the live diff, so anchors that drift
    are pinned to a real section rather than dropped.
