@@ -32,6 +32,7 @@
     --codiff-font-sans:
       Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --codiff-link: var(--tree-selection-focus);
+    --codiff-tree-color-scheme: light;
     --danger: #a33a3a;
     --diff-addition: rgb(31 122 68);
     --diff-deletion: rgb(184 49 47);
@@ -60,6 +61,7 @@
       --app-bg: #141414;
       --code-bg: #1c1c1c;
       --codiff-link: var(--tree-selection-focus);
+      --codiff-tree-color-scheme: dark;
       --danger: #e07878;
       --diff-addition: rgb(111 208 148);
       --diff-deletion: rgb(238 126 126);
@@ -82,10 +84,13 @@
     }
   }
 
-  :root[data-theme='light'] {
+  :root[data-theme='light'],
+  .app-shell[data-theme='light'],
+  .plan-shell[data-theme='light'] {
     --app-bg: #f8f8f6;
     --code-bg: #ffffff;
     --codiff-link: var(--tree-selection-focus);
+    --codiff-tree-color-scheme: light;
     --danger: #a33a3a;
     --diff-addition: rgb(31 122 68);
     --diff-deletion: rgb(184 49 47);
@@ -107,10 +112,13 @@
     color-scheme: light;
   }
 
-  :root[data-theme='dark'] {
+  :root[data-theme='dark'],
+  .app-shell[data-theme='dark'],
+  .plan-shell[data-theme='dark'] {
     --app-bg: #141414;
     --code-bg: #1c1c1c;
     --codiff-link: var(--tree-selection-focus);
+    --codiff-tree-color-scheme: dark;
     --danger: #e07878;
     --diff-addition: rgb(111 208 148);
     --diff-deletion: rgb(238 126 126);
@@ -359,7 +367,6 @@ html[data-codiff-platform='darwin'] .plan-header {
 .plan-comment-add:hover {
   background: color-mix(in srgb, var(--sidebar-ref) 12%, var(--code-bg));
   box-shadow:
-    0 0 0 1px rgb(255 255 255 / 0.2) inset,
     0 10px 32px -24px rgb(0 0 0 / 0.92),
     0 8px 20px -16px rgb(0 0 0 / 0.82);
   transform: translateY(-2px) scale(1.08);
@@ -1092,6 +1099,16 @@ html[data-codiff-platform='darwin'] .sidebar {
   opacity: 0.45;
 }
 
+.sidebar-settings-bar {
+  align-items: center;
+  border-top: 1px solid var(--sidebar-border);
+  display: flex;
+  flex: none;
+  height: 38px;
+  min-height: 38px;
+  padding: 4px 8px;
+}
+
 .sidebar-search {
   -webkit-app-region: no-drag;
   background: rgb(127 127 127 / 0.1);
@@ -1454,7 +1471,6 @@ html[data-codiff-platform='darwin'] .sidebar {
 .commit-details-copy:hover {
   background: rgb(127 127 127 / 0.11);
   box-shadow:
-    0 0 0 1px rgb(255 255 255 / 0.2) inset,
     0 10px 32px -24px rgb(0 0 0 / 0.92),
     0 8px 20px -16px rgb(0 0 0 / 0.82);
   color: var(--sidebar-ref);
@@ -1720,6 +1736,25 @@ html[data-codiff-platform='darwin'] .sidebar {
   padding: 0 8px 8px 50px;
 }
 
+.codiff-source-description-footer-row {
+  align-items: stretch;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+}
+
+.codiff-source-description-footer-main,
+.codiff-source-description-footer-aside {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.codiff-source-description-footer-main > *,
+.codiff-source-description-footer-aside > * {
+  flex: 1;
+}
+
 .source-description-comment-anonymous + .codiff-source-description-footer {
   padding-left: 8px;
 }
@@ -1778,12 +1813,16 @@ html[data-codiff-platform='darwin'] .sidebar {
 }
 
 .pull-request-merge-panel {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .pull-request-merge-content {
   display: flex;
+  flex: 1;
   flex-direction: column;
+  min-height: 0;
   min-width: 0;
 }
 
@@ -1861,6 +1900,7 @@ html[data-codiff-platform='darwin'] .sidebar {
 .pull-request-merge-controls {
   border-top: 1px solid var(--file-border);
   justify-content: flex-end;
+  margin-top: auto;
   padding: 8px;
 }
 
@@ -1917,7 +1957,11 @@ html[data-codiff-platform='darwin'] .sidebar {
   color: var(--text);
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1024px) {
+  .codiff-source-description-footer-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .pull-request-merge-controls,
   .pull-request-merge-actions {
     justify-content: flex-start;
@@ -2936,7 +2980,6 @@ html[data-codiff-platform='darwin'] .sidebar {
 
 .codiff-open-button:hover:not(:disabled) {
   box-shadow:
-    0 0 0 1px rgb(255 255 255 / 0.2) inset,
     0 10px 32px -24px rgb(0 0 0 / 0.92),
     0 8px 20px -16px rgb(0 0 0 / 0.82);
   transform: scale(1.05);
@@ -3178,7 +3221,6 @@ diffs-container .review-comment-thread {
 .review-comment-action:not(:disabled):hover {
   background: rgb(127 127 127 / 0.12);
   box-shadow:
-    0 0 0 1px rgb(255 255 255 / 0.2) inset,
     0 10px 32px -24px rgb(0 0 0 / 0.92),
     0 8px 20px -16px rgb(0 0 0 / 0.82);
   transform: scale(1.05);
@@ -3461,7 +3503,6 @@ diffs-container .review-comment-thread {
 
 .copy-comments-button:hover {
   box-shadow:
-    0 0 0 1px rgb(255 255 255 / 0.2) inset,
     0 0 0 1px var(--file-border),
     0 26px 96px -48px rgb(0 0 0 / 0.92),
     0 22px 62px -30px rgb(0 0 0 / 0.82),
@@ -3596,7 +3637,6 @@ diffs-container .review-comment-thread {
 
 .empty-panel-actions button:hover:not(:disabled) {
   box-shadow:
-    0 0 0 1px rgb(255 255 255 / 0.2) inset,
     0 10px 32px -24px rgb(0 0 0 / 0.92),
     0 8px 20px -16px rgb(0 0 0 / 0.82);
   transform: scale(1.05);

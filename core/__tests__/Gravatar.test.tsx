@@ -12,14 +12,16 @@ const reactActEnvironment = globalThis as typeof globalThis & {
 };
 reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
 
-test('Gravatar falls back to the initial when the image fails to load', async () => {
+test('Gravatar falls back to initials when the image fails to load', async () => {
   const container = document.createElement('div');
   let root: Root | null = null;
 
   try {
     await act(async () => {
       root = createRoot(container);
-      root.render(<Gravatar fallback="Reviewer" size="medium" url="https://example.com/avatar" />);
+      root.render(
+        <Gravatar fallback="Christoph Nakazawa" size="medium" url="https://example.com/avatar" />,
+      );
     });
 
     const image = container.querySelector('img');
@@ -30,7 +32,7 @@ test('Gravatar falls back to the initial when the image fails to load', async ()
     });
 
     expect(container.querySelector('img')).toBeNull();
-    expect(container.textContent).toBe('R');
+    expect(container.textContent).toBe('CN');
   } finally {
     await act(async () => root?.unmount());
   }
@@ -50,7 +52,7 @@ test('Gravatar retries rendering when the avatar URL changes', async () => {
       container.querySelector('img')?.dispatchEvent(new Event('error', { bubbles: true }));
     });
 
-    expect(container.textContent).toBe('R');
+    expect(container.textContent).toBe('RE');
 
     await act(async () => {
       root?.render(<Gravatar fallback="Reviewer" size="medium" url="https://example.com/second" />);

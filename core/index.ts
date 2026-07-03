@@ -21,6 +21,7 @@ export type {
   PullRequestMergeState,
   PullRequestReviewComment,
   PullRequestReviewEvent,
+  PullRequestReviewer,
   RepositoryState,
   ReviewSource,
   SharedPlanSnapshot,

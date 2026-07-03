@@ -93,6 +93,7 @@ import { getReviewIdentity, isReviewIdentityViewed } from '../../lib/review-iden
 import { applySearchHighlights } from '../../lib/search-highlights.ts';
 import type {
   ChangedFile,
+  CodiffPreferences,
   CommitMetadata,
   DiffImageContentRequest,
   DiffImageContentResult,
@@ -2390,6 +2391,7 @@ export function ReviewCodeView({
   sourceDescriptionActions,
   sourceDescriptionFooter,
   sourceDescriptionFooterKey,
+  theme = 'system',
   viewed,
   walkthroughNotes,
   wordWrap,
@@ -2446,6 +2448,7 @@ export function ReviewCodeView({
   sourceDescriptionActions?: ReactNode;
   sourceDescriptionFooter?: ReactNode;
   sourceDescriptionFooterKey?: string;
+  theme?: CodiffPreferences['theme'];
   viewed: Record<string, string>;
   walkthroughNotes: ReadonlyMap<string, WalkthroughNote>;
   wordWrap: boolean;
@@ -3163,7 +3166,7 @@ export function ReviewCodeView({
           dark: 'Dunkel',
           light: 'Licht',
         },
-        themeType: 'system',
+        themeType: theme,
         tokenizeMaxLength: 100_000,
         unsafeCSS: codeViewUnsafeCSS,
       }) satisfies CodeViewOptions<ReviewAnnotationMetadata>,
@@ -3179,6 +3182,7 @@ export function ReviewCodeView({
       onCreateComment,
       onLoadSection,
       sourceDescriptionItemId,
+      theme,
       wordWrap,
     ],
   );

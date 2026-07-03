@@ -73,6 +73,32 @@ const walkthrough = {
   version: 4,
 } satisfies NarrativeWalkthrough;
 
+test('merge request review shells expose explicit theme preferences for scoped CSS variables', async () => {
+  const view = await renderReact(
+    <MergeRequestReviewApp
+      externalUrl={state.source.url}
+      onGenerateWalkthrough={vi.fn()}
+      onHome={vi.fn()}
+      onSubmitComment={vi.fn()}
+      onSubmitGeneralComment={vi.fn()}
+      onSubmitReview={vi.fn()}
+      onUpdateComment={vi.fn()}
+      onUpdateGeneralComment={vi.fn()}
+      preferences={{ theme: 'dark' }}
+      state={state}
+      title="Review in Codiff"
+      walkthrough={null}
+      walkthroughStatus="idle"
+    />,
+  );
+
+  try {
+    expect(view.container.querySelector('.app-shell')?.getAttribute('data-theme')).toBe('dark');
+  } finally {
+    await view.cleanup();
+  }
+});
+
 test('merge request reviews expose navigation, actions, and lazy walkthrough generation', async () => {
   const onGenerateWalkthrough = vi.fn();
   const onHome = vi.fn();
@@ -310,6 +336,77 @@ test('merge request reviews render a Resolve action for resolvable inline discus
     ).find((button) => button.textContent === 'Resolve');
     await act(async () => resolveAfterReply?.click());
     expect(onResolveDiscussion).toHaveBeenCalledWith('discussion-1', true);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test('merge request reviews reuse an empty draft on the same line', async () => {
+  const view = await renderReact(
+    <MergeRequestReviewApp
+      externalUrl={state.source.url}
+      onGenerateWalkthrough={vi.fn()}
+      onHome={vi.fn()}
+      onResolveDiscussion={vi.fn()}
+      onSubmitComment={vi.fn()}
+      onSubmitGeneralComment={vi.fn()}
+      onSubmitReview={vi.fn()}
+      onUpdateComment={vi.fn()}
+      onUpdateGeneralComment={vi.fn()}
+      state={{
+        ...state,
+        reviewComments: [
+          {
+            author: { login: 'reviewer' },
+            body: 'First discussion.',
+            canResolveThread: true,
+            filePath: 'src/app.ts',
+            id: 'gitlab:1',
+            lineNumber: 1,
+            side: 'additions',
+            threadId: 'discussion-1',
+          },
+          {
+            author: { login: 'reviewer' },
+            body: 'Second discussion.',
+            canResolveThread: true,
+            filePath: 'src/app.ts',
+            id: 'gitlab:2',
+            lineNumber: 1,
+            side: 'additions',
+            threadId: 'discussion-2',
+          },
+        ],
+      }}
+      title="Review in Codiff"
+      walkthrough={null}
+      walkthroughStatus="idle"
+    />,
+  );
+
+  const getReplyButtons = () =>
+    Array.from(
+      view.container.querySelectorAll<HTMLButtonElement>('.review-comment-thread-footer button'),
+    ).filter((button) => button.textContent === 'Reply');
+  const getDraftCommentButtons = () =>
+    Array.from(view.container.querySelectorAll<HTMLButtonElement>('button')).filter(
+      (button) => button.textContent === 'Comment',
+    );
+
+  try {
+    await waitFor(() => {
+      expect(getReplyButtons()).toHaveLength(2);
+    });
+
+    await act(async () => getReplyButtons()[0]?.click());
+    await waitFor(() => {
+      expect(getDraftCommentButtons()).toHaveLength(1);
+    });
+
+    await act(async () => getReplyButtons()[0]?.click());
+    await waitFor(() => {
+      expect(getDraftCommentButtons()).toHaveLength(1);
+    });
   } finally {
     await view.cleanup();
   }

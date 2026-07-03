@@ -153,8 +153,8 @@ export const codeViewUnsafeCSS = `
     --diffs-header-font-family: var(--font-sans);
     --diffs-font-size: var(--font-diff-size, 13px);
     --diffs-line-height: var(--font-diff-line-height, 20px);
-    --diffs-light-bg: #ffffff;
-    --diffs-dark-bg: #1c1c1c;
+    --diffs-light-bg: var(--code-bg);
+    --diffs-dark-bg: var(--code-bg);
     --diffs-bg-selection-override: rgb(61 135 245 / 0.34);
     --diffs-bg-selection-number-override: rgb(61 135 245 / 0.46);
   }

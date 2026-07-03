@@ -2362,6 +2362,7 @@ export default function App() {
         reviewStatus={state.source.type === 'pull-request' ? state.source.reviewStatus : undefined}
       />
     ) : undefined,
+    theme: preferences.theme,
     viewed,
     wordWrap,
   };

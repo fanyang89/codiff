@@ -180,6 +180,7 @@ export function Sidebar({
         --trees-selected-fg-override: var(--sidebar-text);
         --trees-selected-focused-border-color-override: color-mix(in srgb, var(--tree-selection-focus) 42%, transparent);
         --truncate-marker-background-color: transparent;
+        color-scheme: var(--codiff-tree-color-scheme, light dark);
         color: var(--sidebar-text);
         font: 13px/1.35 var(--font-sans);
       }

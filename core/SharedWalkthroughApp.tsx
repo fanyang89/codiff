@@ -60,7 +60,11 @@ import {
 import { compactPath, fileTreeSort, fuzzyMatches, sortFiles, statusForTree } from './lib/files.ts';
 import { isNativeInputTarget } from './lib/keyboard.ts';
 import { isGeneratedWalkthroughPath } from './lib/narrative-walkthrough-diff.js';
-import { getReviewCommentRangeProps, getReviewCommentsFromState } from './lib/review-comments.ts';
+import {
+  getCommentKey,
+  getReviewCommentRangeProps,
+  getReviewCommentsFromState,
+} from './lib/review-comments.ts';
 import {
   updateReviewIdentityCollapsed,
   updateReviewIdentityViewed,
@@ -147,6 +151,9 @@ export type MergeRequestReviewAppProps = {
       'codeFontFamily' | 'codeFontSize' | 'diffStyle' | 'showWhitespace' | 'theme' | 'wordWrap'
     >
   >;
+  settingsBar?: ReactNode;
+  sourceDescriptionFooterAside?: ReactNode;
+  sourceDescriptionFooterAsideKey?: string;
   state: RepositoryState;
   title: string;
   walkthrough: NarrativeWalkthrough | null;
@@ -754,12 +761,26 @@ function SharedFileTree({
     sort: fileTreeSort,
     unsafeCSS: `
       :host {
+        --trees-bg-override: transparent;
+        --trees-bg-muted-override: var(--hover-wash);
+        --trees-border-color-override: var(--sidebar-border);
+        --trees-fg-muted-override: var(--muted);
+        --trees-fg-override: var(--sidebar-text);
+        --trees-focus-ring-color-override: var(--tree-selection-focus);
         --trees-padding-inline-override: 4px;
+        --trees-search-bg-override: rgb(127 127 127 / 0.1);
+        --trees-search-fg-override: var(--sidebar-text);
+        --trees-selected-bg-override: color-mix(in srgb, var(--tree-selection-bg) 46%, transparent);
+        --trees-selected-fg-override: var(--sidebar-text);
+        --trees-selected-focused-border-color-override: color-mix(in srgb, var(--tree-selection-focus) 42%, transparent);
+        --truncate-marker-background-color: transparent;
+        color-scheme: var(--codiff-tree-color-scheme, light dark);
         color: var(--sidebar-text);
         font: 13px/1.35 var(--font-sans);
       }
 
       button[data-type='item'] {
+        background-color: transparent;
         border-radius: 14px;
         corner-shape: squircle;
       }
@@ -852,7 +873,10 @@ type ReviewSurfaceProps = {
     walkthroughStatus: MergeRequestWalkthroughStatus;
   };
   onModeChange?: (mode: MergeRequestReviewMode) => void;
+  settingsBar?: ReactNode;
   snapshot: SharedWalkthroughSnapshot;
+  sourceDescriptionFooterAside?: ReactNode;
+  sourceDescriptionFooterAsideKey?: string;
   title?: string;
 };
 
@@ -862,7 +886,10 @@ function ReviewSurface({
   initialMode,
   interactive,
   onModeChange,
+  settingsBar,
   snapshot,
+  sourceDescriptionFooterAside,
+  sourceDescriptionFooterAsideKey,
   title,
 }: ReviewSurfaceProps) {
   const sharedWalkthrough = useMemo(
@@ -1016,6 +1043,39 @@ function ReviewSurface({
   const createComment = useCallback(
     (comment: Omit<ReviewComment, 'body' | 'id'>) => {
       if (!interactive) {
+        return;
+      }
+
+      const emptyExistingComment = reviewCommentsRef.current.find(
+        (candidate) =>
+          candidate.body.length === 0 && getCommentKey(candidate) === getCommentKey(comment),
+      );
+      if (emptyExistingComment) {
+        setFocusCommentId(emptyExistingComment.id);
+        setFocusCommentRequest((current) => current + 1);
+        return;
+      }
+
+      const emptyDraft = reviewCommentsRef.current.find(
+        (candidate) => !candidate.isReadOnly && candidate.body.length === 0,
+      );
+      if (emptyDraft) {
+        const id = crypto.randomUUID();
+        setFocusCommentId(id);
+        setFocusCommentRequest((current) => current + 1);
+        setLocalReviewComments((current) =>
+          current.map((candidate) =>
+            candidate.id === emptyDraft.id
+              ? {
+                  ...comment,
+                  body: '',
+                  id,
+                }
+              : candidate,
+          ),
+        );
+        bumpItemVersion(emptyDraft.filePath);
+        bumpItemVersion(comment.filePath);
         return;
       }
 
@@ -1501,6 +1561,7 @@ function ReviewSurface({
     searchQuery: '',
     showWhitespace: snapshot.preferences.showWhitespace,
     source: snapshot.repository.source,
+    theme: snapshot.preferences.theme,
     viewed,
     wordWrap: snapshot.preferences.wordWrap,
   };
@@ -1528,7 +1589,7 @@ function ReviewSurface({
         {sourceMergeStatusBadge}
       </div>
     ) : undefined;
-  const sourceDescriptionFooter =
+  const sourceDescriptionFooterMain =
     interactive && sourceMergeState && !isTerminalMergeState ? (
       <PullRequestMergeControls
         disabled={pullRequestMergeSubmitting}
@@ -1538,6 +1599,15 @@ function ReviewSurface({
         onMergePullRequest={mergePullRequest}
       />
     ) : undefined;
+  const sourceDescriptionFooter =
+    sourceDescriptionFooterMain && sourceDescriptionFooterAside ? (
+      <div className="codiff-source-description-footer-row">
+        <div className="codiff-source-description-footer-main">{sourceDescriptionFooterMain}</div>
+        <div className="codiff-source-description-footer-aside">{sourceDescriptionFooterAside}</div>
+      </div>
+    ) : (
+      (sourceDescriptionFooterMain ?? sourceDescriptionFooterAside)
+    );
   const sourceDescriptionFooterKey =
     interactive && sourceMergeState && !isTerminalMergeState
       ? [
@@ -1555,9 +1625,10 @@ function ReviewSurface({
           ...sourceMergeState.checks.map(
             (check) => `${check.status}:${check.label}:${check.detail ?? ''}:${check.url ?? ''}`,
           ),
+          sourceDescriptionFooterAsideKey ? `aside:${sourceDescriptionFooterAsideKey}` : '',
         ].join('|')
       : sourceDescriptionFooter
-        ? 'custom'
+        ? (sourceDescriptionFooterAsideKey ?? 'custom')
         : '';
   const sourceDescription =
     source.type === 'pull-request' ? (
@@ -1616,6 +1687,8 @@ function ReviewSurface({
   const walkthroughStatusDescription = walkthroughFailed
     ? (interactive?.walkthroughError ?? 'Fix the generation issue, then try again.')
     : null;
+  const shellTheme =
+    snapshot.preferences.theme === 'system' ? undefined : snapshot.preferences.theme;
   const requestWalkthrough = () => {
     startWalkthroughGeneration();
   };
@@ -1623,6 +1696,7 @@ function ReviewSurface({
   return (
     <div
       className={`app-shell share-shell${interactive ? ' merge-request-shell' : ''}`}
+      data-theme={shellTheme}
       style={{ gridTemplateColumns: `${sidebarWidth}px 0 minmax(0, 1fr)` }}
     >
       <aside className="squircle sidebar">
@@ -1748,6 +1822,7 @@ function ReviewSurface({
             </div>
           </div>
         )}
+        {settingsBar ? <div className="sidebar-settings-bar">{settingsBar}</div> : null}
       </aside>
       <div aria-hidden className="sidebar-resizer" onPointerDown={resizeSidebar} />
       <main className="review codiff-web-review">
@@ -1829,8 +1904,14 @@ function ReviewSurface({
   );
 }
 
-export function SharedWalkthroughApp({ snapshot }: { snapshot: SharedWalkthroughSnapshot }) {
-  return <ReviewSurface snapshot={snapshot} />;
+export function SharedWalkthroughApp({
+  settingsBar,
+  snapshot,
+}: {
+  settingsBar?: ReactNode;
+  snapshot: SharedWalkthroughSnapshot;
+}) {
+  return <ReviewSurface settingsBar={settingsBar} snapshot={snapshot} />;
 }
 
 export function MergeRequestReviewApp({
@@ -1853,6 +1934,9 @@ export function MergeRequestReviewApp({
   onUpdateTitle,
   onUploadDescriptionAsset,
   preferences,
+  settingsBar,
+  sourceDescriptionFooterAside,
+  sourceDescriptionFooterAsideKey,
   state,
   title,
   walkthrough,
@@ -1929,7 +2013,10 @@ export function MergeRequestReviewApp({
         walkthroughStatus,
       }}
       onModeChange={onModeChange}
+      settingsBar={settingsBar}
       snapshot={snapshot}
+      sourceDescriptionFooterAside={sourceDescriptionFooterAside}
+      sourceDescriptionFooterAsideKey={sourceDescriptionFooterAsideKey}
       title={title}
     />
   );

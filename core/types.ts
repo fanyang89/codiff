@@ -44,6 +44,11 @@ export type ReviewAuthor = {
   url?: string;
 };
 
+export type PullRequestReviewer = ReviewAuthor & {
+  approved: boolean;
+  id: string;
+};
+
 export type PullRequestReviewActionStatus = {
   disabled?: boolean;
   reason?: string;
@@ -118,6 +123,7 @@ export type ReviewSource =
   | {
       author?: ReviewAuthor;
       canEditDescription?: boolean;
+      canEditReviewers?: boolean;
       canEditTitle?: boolean;
       description?: string;
       headSha?: string;
@@ -128,6 +134,7 @@ export type ReviewSource =
       projectPath?: string;
       provider?: 'github' | 'gitlab';
       repo?: string;
+      reviewers?: ReadonlyArray<PullRequestReviewer>;
       reviewStatus?: PullRequestReviewStatus;
       title?: string;
       type: 'pull-request';
