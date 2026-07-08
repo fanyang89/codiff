@@ -1043,6 +1043,107 @@ test('review comment typing stays local until a comment action commits it', asyn
   }
 });
 
+test('file comments can be created for GitLab merge requests but not GitHub pull requests', async () => {
+  const file = createChangedFile('src/comment.ts');
+  const onCreateComment = vi.fn();
+  const gitLabSource = {
+    provider: 'gitlab',
+    type: 'pull-request',
+    url: 'https://gitlab.example.com/group/project/-/merge_requests/1',
+  } satisfies ReviewSource;
+  const gitHubSource = {
+    provider: 'github',
+    type: 'pull-request',
+    url: 'https://github.com/example/project/pull/1',
+  } satisfies ReviewSource;
+  const view = await renderReact(
+    <ReviewCodeViewHarness
+      files={[file]}
+      isPullRequest
+      onCreateComment={onCreateComment}
+      source={gitLabSource}
+    />,
+  );
+
+  try {
+    const fileCommentButton = view.container.querySelector<HTMLButtonElement>(
+      '.codiff-file-comment-button',
+    );
+    expect(fileCommentButton).not.toBeNull();
+
+    await act(async () => fileCommentButton?.click());
+    expect(onCreateComment).toHaveBeenCalledWith({
+      anchor: 'file',
+      filePath: 'src/comment.ts',
+      sectionId: 'src/comment.ts:unstaged',
+    });
+
+    await view.rerender(
+      <ReviewCodeViewHarness
+        files={[file]}
+        isPullRequest
+        onCreateComment={onCreateComment}
+        source={gitHubSource}
+      />,
+    );
+    expect(view.container.querySelector('.codiff-file-comment-button')).toBeNull();
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test('file-level review comments render as measured file annotations', async () => {
+  const file = createChangedFile('src/comment.ts');
+  const view = await renderReact(
+    <ReviewCodeViewHarness
+      comments={[
+        {
+          anchor: 'file',
+          author: { login: 'reviewer' },
+          body: 'Review this file as a whole.',
+          filePath: file.path,
+          id: 'gitlab:file',
+          isReadOnly: true,
+          sectionId: 'src/comment.ts:unstaged',
+        },
+      ]}
+      files={[file]}
+      isPullRequest
+      source={{
+        provider: 'gitlab',
+        type: 'pull-request',
+        url: 'https://gitlab.example.com/group/project/-/merge_requests/1',
+      }}
+    />,
+  );
+
+  try {
+    const fileComments = view.container.querySelector('.review-comment-thread');
+    expect(fileComments?.textContent).toContain('Review this file as a whole.');
+    expect(fileComments?.closest('.codiff-file-header')).toBeNull();
+    const item = codeViewMock.lastItems.find(
+      (candidate) => candidate.id === 'diff:src/comment.ts:unstaged',
+    ) as
+      | {
+          annotations?: ReadonlyArray<{
+            lineNumber: number;
+            metadata: { commentIds?: ReadonlyArray<string>; type: string };
+          }>;
+        }
+      | undefined;
+    expect(item?.annotations).toContainEqual({
+      lineNumber: 0,
+      metadata: {
+        commentIds: ['gitlab:file'],
+        type: 'review-comment',
+      },
+      side: 'additions',
+    });
+  } finally {
+    await view.cleanup();
+  }
+});
+
 test('Enter on a focused review control is not converted into a hunk comment', async () => {
   const onCreateComment = vi.fn();
   const onOpenFile = vi.fn();

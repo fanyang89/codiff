@@ -9,10 +9,11 @@ const { buildReviewAssistantInput, buildReviewAssistantPrompt, normalizeReviewAs
       request: unknown,
     ) => {
       comment: {
+        anchor?: 'file' | 'line';
         body: string;
         filePath: string;
-        lineNumber: number;
-        side: string;
+        lineNumber?: number;
+        side?: string;
       };
       focus: {
         patchExcerpt: string;
@@ -111,6 +112,46 @@ test('builds focused inline review assistant context', () => {
   expect(input.walkthroughNote).toMatchObject({
     context: 'Check whether state stays synchronized.',
   });
+});
+
+test('builds file-level review assistant context without inventing a line', () => {
+  const input = buildReviewAssistantInput(
+    {
+      files: [
+        {
+          path: 'src/state.ts',
+          sections: [
+            {
+              binary: false,
+              id: 'src/state.ts:unstaged',
+              kind: 'unstaged',
+              patch: '+const synchronized = true;',
+            },
+          ],
+          status: 'modified',
+        },
+      ],
+      root: '/repo',
+      source: { type: 'working-tree' },
+    },
+    {
+      comment: {
+        anchor: 'file',
+        body: 'Why is this file organized this way?',
+        filePath: 'src/state.ts',
+        sectionId: 'src/state.ts:unstaged',
+      },
+    },
+  );
+
+  expect(input.comment).toMatchObject({
+    anchor: 'file',
+    body: 'Why is this file organized this way?',
+    filePath: 'src/state.ts',
+  });
+  expect(input.comment.lineNumber).toBeUndefined();
+  expect(input.comment.side).toBeUndefined();
+  expect(input.focus?.patchExcerpt).toContain('+const synchronized = true;');
 });
 
 test('builds review assistant context with PR descriptions as orientation only', () => {

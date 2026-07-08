@@ -507,14 +507,13 @@ const normalizeNarrativeWalkthrough = (input, files, facts = {}, hunkIdByAlias =
 /** @param {DiffSection} section @param {number} remainingBudget @param {number} sectionPatchBudget */
 const buildPatchExcerpt = (section, remainingBudget, sectionPatchBudget) => {
   const summary = section.summary?.reason ? `Summary: ${section.summary.reason}\n` : '';
-  const patch = section.patch || '';
-  const maxLength = Math.max(0, Math.min(sectionPatchBudget, remainingBudget - summary.length));
-
-  if (maxLength === 0) {
-    return summary || '[patch omitted: budget exhausted]';
-  }
-
-  return `${summary}${truncate(patch, maxLength)}`;
+  const maxLength = Math.max(0, Math.min(sectionPatchBudget, remainingBudget));
+  const excerpt = `${summary}${section.patch || ''}` || '[patch omitted: no text patch available]';
+  return excerpt.length <= maxLength
+    ? excerpt
+    : maxLength <= 1
+      ? excerpt.slice(0, maxLength)
+      : `${excerpt.slice(0, maxLength - 1)}…`;
 };
 
 /** @param {number} start @param {number} end */
@@ -705,6 +704,7 @@ Grouping contract:
 - Target ${targetStops} main-path stops and at most ${MAX_WALKTHROUGH_STOPS}. Prefer the low end when it still preserves distinct state transitions, submission paths, or runtime contracts.
 - Use ${targetChapterInstruction}. A chapter is a conceptual group, not a file. For one- or two-file diffs, prefer one chapter unless there are clearly separate review phases.
 - Chapter titles render in a compact top bar: keep each title to 1-2 short words and at most 16 characters, e.g. "UI", "CLI", "Tests", "Docs", "Runtime", "Cleanup".
+- Every stop must have a concise semantic title that names the review idea in roughly 2-6 words, e.g. "Prevent duplicate payments" or "Preserve offline drafts". Never use a filename or path as a stop title.
 - A stop may contain at most ${MAX_HUNKS_PER_WALKTHROUGH_GROUP} hunkIds. Use multiple hunkIds when the prose needs those hunks read together to understand one invariant, behavior, or repeated pattern.
 - Generated-like files have "generated": true and one synthetic hunk per changed section. Never split them; main-path them only when they explain behavior, like snapshots proving output.
 - For 1-4 total hunks, usually write 1-2 stops. Similar same-file hunks should usually be one stop with multiple hunkIds, not separate chapters or stops.

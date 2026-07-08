@@ -183,12 +183,14 @@ const baseInput = () => ({
           id: 's1',
           importance: 'critical',
           prose: 'The root cause line.',
+          title: 'Collapsed file ordering',
         },
         {
           hunkIds: ['src/__tests__/hunkNavigation.test.ts:staged:h1'],
           id: 's6',
           importance: 'normal',
           prose: 'The regression test.',
+          title: 'Navigation regression test',
         },
       ],
       title: 'The bug',
@@ -245,7 +247,8 @@ test('derives an OpenAI strict-compatible response schema', () => {
   expect(stopProperties.commitNote).toBeUndefined();
   expect(stopProperties.notes).toBeUndefined();
   expect(stopProperties.summary).toBeUndefined();
-  expect(stopProperties.title).toBeUndefined();
+  expect(stopProperties.title.maxLength).toBe(80);
+  expect(chapters.items.properties.stops.items.required).toContain('title');
   expect(stopProperties.hunkIds.minItems).toBe(1);
   expect(stopProperties.hunkIds.maxItems).toBe(14);
   expect(stopProperties.comments).toBeUndefined();
@@ -268,6 +271,8 @@ test('prompts generated walkthroughs to use deterministic hunk groups', () => {
   expect(prompt).toContain('Target 6-9 main-path stops');
   expect(prompt).toContain('Define chapters[] in display order');
   expect(prompt).toContain('Default to one review idea per stop');
+  expect(prompt).toContain('Every stop must have a concise semantic title');
+  expect(prompt).toContain('Never use a filename or path as a stop title');
   expect(prompt).toContain('A stop may contain at most 14 hunkIds');
   expect(prompt).toContain('Use multiple hunkIds when the prose needs those hunks read together');
   expect(prompt).toContain('compact request-local aliases');
@@ -443,6 +448,63 @@ test('repository digest exposes compact hunk aliases and counts', () => {
   expect(prompt).toContain('Do not provide added/deleted counts');
 });
 
+test('repository digest strictly enforces section and total patch budgets', () => {
+  const prompt = buildNarrativeWalkthroughPrompt({
+    branch: 'main',
+    files: Array.from({ length: 100 }, (_, index) => ({
+      path: `src/file-${index}.ts`,
+      sections: [
+        {
+          id: `src/file-${index}.ts:staged`,
+          kind: 'staged',
+          patch: 'x'.repeat(700),
+        },
+      ],
+      status: 'modified',
+    })),
+    generatedAt: 1,
+    root: '/repo',
+    source: { type: 'working-tree' },
+  });
+  const digest = JSON.parse(prompt.split('Repository change digest:\n')[1] ?? '{}') as {
+    files: ReadonlyArray<{ sections: ReadonlyArray<{ patchExcerpt: string }> }>;
+  };
+  const lengths = digest.files.flatMap((file) =>
+    file.sections.map((section) => section.patchExcerpt.length),
+  );
+
+  expect(Math.max(...lengths)).toBeLessThanOrEqual(700);
+  expect(lengths.reduce((total, length) => total + length, 0)).toBeLessThanOrEqual(35_000);
+});
+
+test('repository digest includes summaries within the section patch budget', () => {
+  const prompt = buildNarrativeWalkthroughPrompt({
+    branch: 'main',
+    files: [
+      {
+        path: 'src/summary.ts',
+        sections: [
+          {
+            id: 'src/summary.ts:staged',
+            kind: 'staged',
+            patch: 'x'.repeat(5_000),
+            summary: { reason: 'R'.repeat(1_000) },
+          },
+        ],
+        status: 'modified',
+      },
+    ],
+    generatedAt: 1,
+    root: '/repo',
+    source: { type: 'working-tree' },
+  });
+  const digest = JSON.parse(prompt.split('Repository change digest:\n')[1] ?? '{}') as {
+    files: ReadonlyArray<{ sections: ReadonlyArray<{ patchExcerpt: string }> }>;
+  };
+
+  expect(digest.files[0]?.sections[0]?.patchExcerpt.length).toBeLessThanOrEqual(2_500);
+});
+
 test('repository digest collapses generated files to one synthetic hunk', () => {
   const prompt = buildNarrativeWalkthroughPrompt({
     branch: 'main',
@@ -552,6 +614,7 @@ test('normalizes a well-formed narrative walkthrough', () => {
     added: 1,
     deleted: 1,
     hunkIds: ['src/App.tsx:staged:h1'],
+    title: 'Collapsed file ordering',
   });
   expect(result.chapters[0].stops[0].hunks[0]).toMatchObject({
     added: 1,

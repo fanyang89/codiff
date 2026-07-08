@@ -77,8 +77,29 @@ const uniquePaths = (paths: ReadonlyArray<string>): ReadonlyArray<string> => {
 export const walkthroughItemPaths = (item: WalkthroughHunkGroup): ReadonlyArray<string> =>
   uniquePaths(item.hunks.map((hunk) => hunk.path));
 
-export const walkthroughItemTitleFallback = (item: WalkthroughHunkGroup): string =>
-  item.title ?? walkthroughFileName(item.hunks[0]?.path ?? item.id);
+const readableWalkthroughTitle = (value: string): string => {
+  const normalized = value
+    .replaceAll(/[`*_~]/g, '')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
+  const sentenceEnd = normalized.search(/[.!?](?:\s|$)/);
+  const sentence = (sentenceEnd >= 0 ? normalized.slice(0, sentenceEnd) : normalized).trim();
+  if (sentence.length <= 80) {
+    return sentence;
+  }
+
+  const prefix = sentence.slice(0, 77);
+  const wordBoundary = prefix.lastIndexOf(' ');
+  return `${prefix.slice(0, wordBoundary > 40 ? wordBoundary : 77).trimEnd()}...`;
+};
+
+export const walkthroughItemTitleFallback = (
+  item: WalkthroughHunkGroup & { prose?: string },
+): string =>
+  item.title?.trim() ||
+  (item.summary ? readableWalkthroughTitle(item.summary) : '') ||
+  (item.prose ? readableWalkthroughTitle(item.prose) : '') ||
+  walkthroughFileName(item.hunks[0]?.path ?? item.id);
 
 export const formatWalkthroughFileList = (
   paths: ReadonlyArray<string>,

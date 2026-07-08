@@ -24,6 +24,9 @@ choose.
   `"Tests"`, `"Docs"`, `"Runtime"`, `"Cleanup"`.
 - **`chapters[].stops[]`** — the main review path. Use 1-2 stops for tiny changes, 1-3 stops
   for focused small changes, 5-9 for medium changes, and 7-12 for large changes. Never exceed 14. A stop should represent one review idea and can include up to 14 ordered `hunkIds`.
+  Give every stop a concise semantic `title` in roughly 2-6 words, such as
+  `"Prevent duplicate payments"` or `"Preserve offline drafts"`. Never use a filename or path
+  as the stop title.
 - **`hunkIds[]`** — deterministic hunk ids copied from the repository digest, in the exact order
   Codiff should render them. Default to one review idea per stop, not one hunk per stop. Use
   multiple ids when those hunks implement the same idea, invariant, behavior, or repeated pattern;

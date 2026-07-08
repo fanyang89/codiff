@@ -194,6 +194,10 @@ const mergeRequestEndpoint = (mergeRequest, suffix = '') =>
     mergeRequest.number
   }${suffix}`;
 
+/** @param {{number: number; projectPath: string}} mergeRequest @param {string} threadId */
+const getGitLabDiscussionReplyEndpoint = (mergeRequest, threadId) =>
+  mergeRequestEndpoint(mergeRequest, `/discussions/${encodeURIComponent(threadId)}/notes`);
+
 /** @param {string} repoRoot @param {ReturnType<typeof parseGitLabMergeRequestUrl>} mergeRequest */
 const selectMergeRequestRemote = (repoRoot, mergeRequest) => {
   const remote = readReviewRemotes(repoRoot)
@@ -249,12 +253,13 @@ const normalizeGitLabDiffFile = (diff) => ({
 /** @param {any} note @param {string} url */
 const normalizeGitLabReviewComment = (note, url) => {
   const position = note.position || note.original_position;
+  const isFilePosition = position?.position_type === 'file';
   const lineNumber = position?.new_line ?? position?.old_line;
   const filePath = position?.new_path || position?.old_path;
-  if (!note.body || !filePath || typeof lineNumber !== 'number') {
+  if (!note.body || !filePath || (!isFilePosition && typeof lineNumber !== 'number')) {
     return null;
   }
-  const side = position.new_line != null ? 'additions' : 'deletions';
+  const side = position?.new_line != null ? 'additions' : 'deletions';
   const range = position.line_range;
   const start = range?.start;
   const end = range?.end;
@@ -268,14 +273,41 @@ const normalizeGitLabReviewComment = (note, url) => {
     filePath,
     id: `gitlab:${note.id}`,
     ...(!note.position ? { isOutdated: true } : {}),
-    lineNumber: end?.new_line ?? end?.old_line ?? lineNumber,
-    side: end?.type === 'old' ? 'deletions' : side,
+    ...(isFilePosition
+      ? { anchor: 'file' }
+      : {
+          lineNumber: end?.new_line ?? end?.old_line ?? lineNumber,
+          side: end?.type === 'old' ? 'deletions' : side,
+        }),
     ...(start && (start.new_line ?? start.old_line) !== (end?.new_line ?? end?.old_line)
       ? {
           startLineNumber: start.new_line ?? start.old_line,
           startSide: start.type === 'old' ? 'deletions' : 'additions',
         }
       : {}),
+    submittedAt: note.created_at,
+    url: `${url}#note_${note.id}`,
+  };
+};
+
+/** @param {any} note @param {PullRequestReviewComment} submittedComment @param {string} url */
+const normalizeSubmittedGitLabReviewComment = (note, submittedComment, url) => {
+  const normalized = normalizeGitLabReviewComment(note, url);
+  if (normalized) {
+    return normalized;
+  }
+  if (!note?.body || typeof note.id !== 'number') {
+    return null;
+  }
+  return {
+    ...submittedComment,
+    author: {
+      avatarUrl: note.author?.avatar_url,
+      login: note.author?.username || note.author?.name || 'GitLab user',
+      url: note.author?.web_url,
+    },
+    body: note.body,
+    id: `gitlab:${note.id}`,
     submittedAt: note.created_at,
     url: `${url}#note_${note.id}`,
   };
@@ -522,14 +554,25 @@ const createGitLabDiffLineMap = (diff) => {
 
 /** @param {PullRequestReviewComment} comment @param {any} metadata @param {any} [diff] */
 const createGitLabPosition = (comment, metadata, diff) => {
+  const oldPath = diff?.old_path || comment.filePath;
+  const newPath = diff?.new_path || comment.filePath;
+  if (comment.anchor === 'file' || comment.lineNumber == null || comment.side == null) {
+    return {
+      base_sha: metadata.diff_refs?.base_sha,
+      head_sha: metadata.diff_refs?.head_sha || metadata.sha,
+      new_path: newPath,
+      old_path: oldPath,
+      position_type: 'file',
+      start_sha: metadata.diff_refs?.start_sha,
+    };
+  }
+
   const lineMap = createGitLabDiffLineMap(diff?.diff || '');
   const endLines = lineMap.get(`${comment.side}:${comment.lineNumber}`) || {
     ...(comment.side === 'deletions'
       ? { oldLine: comment.lineNumber }
       : { newLine: comment.lineNumber }),
   };
-  const oldPath = diff?.old_path || comment.filePath;
-  const newPath = diff?.new_path || comment.filePath;
   const position = {
     base_sha: metadata.diff_refs?.base_sha,
     head_sha: metadata.diff_refs?.head_sha || metadata.sha,
@@ -574,6 +617,27 @@ const submitMergeRequestComment = async (launchPath, request) => {
   const repoRoot = (await git(launchPath, ['rev-parse', '--show-toplevel'])).trim();
   const mergeRequest = parseGitLabMergeRequestUrl(request.source.url);
   selectMergeRequestRemote(repoRoot, mergeRequest);
+  if (request.comment.threadId) {
+    const note = JSON.parse(
+      await glabApi(
+        repoRoot,
+        mergeRequest,
+        [
+          '--method',
+          'POST',
+          '--input',
+          '-',
+          getGitLabDiscussionReplyEndpoint(mergeRequest, request.comment.threadId),
+        ],
+        { body: request.comment.body },
+      ),
+    );
+    const comment = normalizeSubmittedGitLabReviewComment(note, request.comment, mergeRequest.url);
+    if (!comment) {
+      throw new Error('GitLab accepted the reply but did not return comment metadata.');
+    }
+    return comment;
+  }
   const metadata = await readMergeRequestMetadata(repoRoot, mergeRequest);
   const diffs = await readMergeRequestDiffs(repoRoot, mergeRequest);
   const diff = diffs.find((candidate) => candidate.new_path === request.comment.filePath);
@@ -588,9 +652,13 @@ const submitMergeRequestComment = async (launchPath, request) => {
       },
     ),
   );
-  const comment = normalizeGitLabReviewComment(discussion.notes?.[0], mergeRequest.url);
+  const comment = normalizeSubmittedGitLabReviewComment(
+    discussion.notes?.[0],
+    request.comment,
+    mergeRequest.url,
+  );
   if (!comment) {
-    throw new Error('GitLab accepted the comment but did not return line metadata.');
+    throw new Error('GitLab accepted the comment but did not return comment metadata.');
   }
   return comment;
 };
@@ -663,9 +731,11 @@ module.exports = {
   createMergeRequestSource,
   createMergeRequestFetchRefspecs,
   getGitLabReviewQuickAction,
+  getGitLabDiscussionReplyEndpoint,
   getGlabCommand,
   listMergeRequestHistory,
   normalizeGitLabReviewComment,
+  normalizeSubmittedGitLabReviewComment,
   parseGlabJsonPages,
   parseGitLabMergeRequestUrl,
   readMergeRequestImageContent,

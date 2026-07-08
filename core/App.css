@@ -2494,6 +2494,7 @@ html[data-codiff-platform='darwin'] .sidebar {
 
 .codiff-header-toggle,
 .codiff-source-description-collapse-button,
+.codiff-file-comment-button,
 .codiff-markdown-button,
 .codiff-open-button,
 .codiff-viewed-button,
@@ -2582,6 +2583,7 @@ html[data-codiff-platform='darwin'] .sidebar {
 
 .codiff-header-toggle:hover:not(:has(.codiff-copy-path-button:hover)) .codiff-chevron-box,
 .codiff-source-description-collapse-button:hover .codiff-chevron-box,
+.codiff-file-comment-button:hover,
 .codiff-markdown-button:hover,
 .codiff-open-button:hover:not(:disabled),
 .codiff-viewed-button:hover {
@@ -2647,6 +2649,7 @@ html[data-codiff-platform='darwin'] .sidebar {
 .codiff-status-badge,
 .codiff-section-badge,
 .codiff-line-count,
+.codiff-file-comment-button,
 .codiff-load-button,
 .codiff-markdown-button,
 .codiff-open-button,
@@ -2697,6 +2700,7 @@ html[data-codiff-platform='darwin'] .sidebar {
 
 .codiff-markdown-button,
 .codiff-load-button,
+.codiff-file-comment-button,
 .codiff-open-button,
 .codiff-viewed-button {
   border: 1px solid rgb(127 127 127 / 0.18);
@@ -2705,6 +2709,10 @@ html[data-codiff-platform='darwin'] .sidebar {
   min-height: 30px;
   padding: 0 12px;
   white-space: nowrap;
+}
+
+.codiff-file-comment-button {
+  gap: 5px;
 }
 
 .codiff-markdown-button.active {
@@ -3425,6 +3433,7 @@ diffs-container .review-comment-thread {
 
   .codiff-markdown-button,
   .codiff-load-button,
+  .codiff-file-comment-button,
   .codiff-open-button,
   .codiff-viewed-button {
     padding-inline: 9px;

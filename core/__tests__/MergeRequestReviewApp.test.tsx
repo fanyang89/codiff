@@ -389,9 +389,9 @@ test('merge request reviews reuse an empty draft on the same line', async () => 
       view.container.querySelectorAll<HTMLButtonElement>('.review-comment-thread-footer button'),
     ).filter((button) => button.textContent === 'Reply');
   const getDraftCommentButtons = () =>
-    Array.from(view.container.querySelectorAll<HTMLButtonElement>('button')).filter(
-      (button) => button.textContent === 'Comment',
-    );
+    Array.from(
+      view.container.querySelectorAll<HTMLButtonElement>('.review-comment-thread button'),
+    ).filter((button) => button.textContent === 'Comment');
 
   try {
     await waitFor(() => {

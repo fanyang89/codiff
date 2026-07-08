@@ -85,7 +85,9 @@ import {
   getReviewCommentLineLabel,
   getReviewCommentsDigest,
   hasActiveTextSelection,
+  isFileReviewComment,
   isInteractiveReviewEvent,
+  isLineReviewComment,
   shouldDiscardReviewCommentOnEscape,
   updateStickyHeaderState,
 } from '../../lib/review-comments.ts';
@@ -172,8 +174,10 @@ function CopyFilePathButton({ path }: { path: string }) {
 
 function CodeViewHeader({
   allowViewedToggle,
+  canCreateFileComment,
   isSectionLoading,
   meta,
+  onCreateFileComment,
   onLoadSection,
   onOpenFile,
   onToggleCollapsed,
@@ -182,8 +186,10 @@ function CodeViewHeader({
   readOnly,
 }: {
   allowViewedToggle: boolean;
+  canCreateFileComment: boolean;
   isSectionLoading: boolean;
   meta: CodeViewItemMetadata;
+  onCreateFileComment: () => void;
   onLoadSection: (file: ChangedFile, section: DiffSection) => void;
   onOpenFile?: (file: ChangedFile) => void;
   onToggleCollapsed: (file: ChangedFile, isCollapsed: boolean, reviewKey: string) => void;
@@ -254,6 +260,17 @@ function CodeViewHeader({
       </div>
       <DiffLineCountBadge lineCount={lineCount} />
       <div className={`codiff-status-badge ${file.status}`}>{statusLabel[file.status]}</div>
+      {canCreateFileComment ? (
+        <button
+          className="codiff-file-comment-button"
+          onClick={onCreateFileComment}
+          title="Comment on file"
+          type="button"
+        >
+          <ChatCircle aria-hidden className="codiff-file-comment-icon" size={14} weight="bold" />
+          Comment
+        </button>
+      ) : null}
       {canRenderMarkdown ? (
         <button
           aria-pressed={isMarkdownPreview}
@@ -2121,7 +2138,9 @@ const lineIsVisibleInFileDiff = (
 const reviewCommentAnchorIsVisibleInFileDiff = (
   comment: ReviewComment,
   fileDiff: FileDiffMetadata,
-) => lineIsVisibleInFileDiff(fileDiff, comment.side, comment.lineNumber);
+) =>
+  !isLineReviewComment(comment) ||
+  lineIsVisibleInFileDiff(fileDiff, comment.side, comment.lineNumber);
 
 const diffSearchMatchIsVisibleInFileDiff = (match: DiffSearchMatch, fileDiff: FileDiffMetadata) => {
   if (match.lineNumber == null) {
@@ -2742,16 +2761,24 @@ export function ReviewCodeView({
               },
             });
           } else {
+            const isLineComment = isLineReviewComment(comment);
             annotationMap.set(key, {
-              lineNumber: comment.lineNumber,
+              lineNumber: isLineComment ? comment.lineNumber : 0,
               metadata: {
                 commentIds: [comment.id],
                 type: 'review-comment',
               },
-              side: comment.side,
+              side: isLineComment
+                ? comment.side
+                : file.status === 'deleted'
+                  ? 'deletions'
+                  : 'additions',
             });
           }
         }
+        const fileCommentAnnotations = [...annotationMap.values()].filter(
+          (annotation) => annotation.lineNumber === 0,
+        );
 
         nextItemMetadata.set(id, {
           blockId: block.id,
@@ -2774,6 +2801,7 @@ export function ReviewCodeView({
         if (canRenderImage) {
           nextItems.push({
             annotations: [
+              ...fileCommentAnnotations,
               {
                 lineNumber: 1,
                 metadata: {
@@ -2805,6 +2833,7 @@ export function ReviewCodeView({
           const markdownPreviewLayoutKey = `${section.id}:${markdownPreview.contents.length}:${markdownPreviewAddedLinesDigest}`;
           nextItems.push({
             annotations: [
+              ...fileCommentAnnotations,
               {
                 lineNumber: 1,
                 metadata: {
@@ -2936,6 +2965,59 @@ export function ReviewCodeView({
     }
     emptyCommentDeleteTimersRef.current.clear();
   }, []);
+
+  const scrollFileItemToTop = useCallback((itemId: string) => {
+    const handle = codeViewRef.current;
+    const viewer = handle?.getInstance();
+    if (!handle || !viewer || viewer.getTopForItem(itemId) == null) {
+      return;
+    }
+
+    handle.scrollTo({
+      behavior: 'smooth-auto',
+      id: itemId,
+      offset: DEFAULT_PADDING,
+      type: 'item',
+    });
+  }, []);
+
+  const canCreateFileComments =
+    !isReadOnly && source.type === 'pull-request' && source.provider === 'gitlab';
+
+  const createFileComment = useCallback(
+    (meta: CodeViewItemMetadata, itemId: string) => {
+      if (!canCreateFileComments) {
+        return;
+      }
+
+      cancelPendingEmptyCommentDeletes();
+      scrollFileItemToTop(itemId);
+      if (meta.isCollapsed) {
+        onToggleCollapsed(meta.file, true, meta.reviewIdentity.key);
+      }
+      if (meta.isMarkdownPreview) {
+        setMarkdownPreviewSections((current) => {
+          const next = new Set(current);
+          next.delete(meta.section.id);
+          return next;
+        });
+      }
+      onCreateComment({
+        anchor: 'file',
+        filePath: meta.file.path,
+        sectionId: meta.section.id,
+      });
+      clearCommentLineHighlight();
+    },
+    [
+      canCreateFileComments,
+      cancelPendingEmptyCommentDeletes,
+      clearCommentLineHighlight,
+      onCreateComment,
+      onToggleCollapsed,
+      scrollFileItemToTop,
+    ],
+  );
 
   const createCommentForRange = useCallback(
     (
@@ -3151,10 +3233,11 @@ export function ReviewCodeView({
       clearCommentLineHighlight();
       cancelPendingEmptyCommentDeletes();
       onCreateComment({
+        ...(isFileReviewComment(comment) ? { anchor: 'file' as const } : {}),
         filePath: comment.filePath,
-        lineNumber: comment.lineNumber,
+        ...(comment.lineNumber != null ? { lineNumber: comment.lineNumber } : {}),
         sectionId: comment.sectionId,
-        side: comment.side,
+        ...(comment.side ? { side: comment.side } : {}),
         ...(comment.startLineNumber != null ? { startLineNumber: comment.startLineNumber } : {}),
         ...(comment.startSide ? { startSide: comment.startSide } : {}),
         threadId,
@@ -3406,12 +3489,28 @@ export function ReviewCodeView({
       }
 
       for (const comment of meta.comments) {
-        addLineEntry(comment.lineNumber, comment.side, {
-          end: comment.lineNumber,
-          endSide: comment.side,
-          side: comment.side,
-          start: comment.lineNumber,
-        });
+        if (!isLineReviewComment(comment)) {
+          push({
+            itemId: item.id,
+            key: `file-comment:${item.id}:${comment.id}`,
+            scrollTarget: {
+              align: 'start',
+              behavior: 'smooth-auto',
+              id: item.id,
+              offset: DEFAULT_PADDING,
+              type: 'item',
+            },
+            selection: null,
+            top: itemTop,
+          });
+        } else {
+          addLineEntry(comment.lineNumber, comment.side, {
+            end: comment.lineNumber,
+            endSide: comment.side,
+            side: comment.side,
+            start: comment.lineNumber,
+          });
+        }
       }
 
       entries.sort((a, b) => a.renderedIndex - b.renderedIndex);
@@ -3630,8 +3729,10 @@ export function ReviewCodeView({
       return meta ? (
         <CodeViewHeader
           allowViewedToggle={allowViewedToggle}
+          canCreateFileComment={canCreateFileComments}
           isSectionLoading={loadingSectionIds.has(meta.section.id)}
           meta={meta}
+          onCreateFileComment={() => createFileComment(meta, item.id)}
           onLoadSection={onLoadSection}
           onOpenFile={onOpenFile}
           onToggleCollapsed={onToggleCollapsed}
@@ -3645,6 +3746,8 @@ export function ReviewCodeView({
       allowViewedToggle,
       canEditSourceDescription,
       canEditSourceTitle,
+      canCreateFileComments,
+      createFileComment,
       itemMetadata,
       isReadOnly,
       loadingSectionIds,
@@ -3702,7 +3805,7 @@ export function ReviewCodeView({
         return annotation.metadata.header;
       }
 
-      return item.type === 'diff' ? (
+      return (
         <ReviewAnnotation
           agentId={agentId}
           agentLabel={agentLabel}
@@ -3724,7 +3827,7 @@ export function ReviewCodeView({
           onSubmitComment={onSubmitComment}
           onUpdateComment={onUpdateComment}
         />
-      ) : null;
+      );
     },
     [
       agentId,

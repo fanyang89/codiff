@@ -91,6 +91,7 @@ import {
   getReviewCommentRangeProps,
   getReviewCommentsFromState,
   getVisibleReviewComments,
+  toPullRequestReviewComment,
 } from './lib/review-comments.ts';
 import {
   getFileReviewIdentity,
@@ -2212,9 +2213,9 @@ export default function App() {
         comment: {
           body: comment.body,
           filePath: comment.filePath,
-          lineNumber: comment.lineNumber,
+          ...(comment.lineNumber != null ? { lineNumber: comment.lineNumber } : {}),
           sectionId: comment.sectionId,
-          side: comment.side,
+          ...(comment.side ? { side: comment.side } : {}),
           ...getReviewCommentRangeProps(comment),
         },
         source: currentState.source,
@@ -2264,13 +2265,7 @@ export default function App() {
       updateRemoteSubmit(comment.id, { status: 'submitting' });
       void window.codiff
         .submitPullRequestComment({
-          comment: {
-            body: comment.body,
-            filePath: comment.filePath,
-            lineNumber: comment.lineNumber,
-            side: comment.side,
-            ...getReviewCommentRangeProps(comment),
-          },
+          comment: toPullRequestReviewComment(comment),
           source: currentState.source,
         })
         .then((submittedComment) => {
@@ -2284,9 +2279,12 @@ export default function App() {
                     filePath: submittedComment.filePath,
                     id: submittedComment.id,
                     isReadOnly: true,
-                    lineNumber: submittedComment.lineNumber,
+                    ...(submittedComment.anchor === 'file' ? { anchor: 'file' as const } : {}),
+                    ...(submittedComment.lineNumber != null
+                      ? { lineNumber: submittedComment.lineNumber }
+                      : {}),
                     sectionId: comment.sectionId,
-                    side: submittedComment.side,
+                    ...(submittedComment.side ? { side: submittedComment.side } : {}),
                     ...getReviewCommentRangeProps(submittedComment),
                     submittedAt: submittedComment.submittedAt,
                     url: submittedComment.url,
@@ -2318,19 +2316,13 @@ export default function App() {
       }
 
       const pendingComments = reviewCommentsRef.current.filter(
-        (comment) => !comment.isReadOnly && comment.body.trim(),
+        (comment) => !comment.isReadOnly && !comment.threadId && comment.body.trim(),
       );
       const pendingCommentIds = new Set(pendingComments.map((comment) => comment.id));
       setPullRequestReviewSubmitting(event);
       void window.codiff
         .submitPullRequestReview({
-          comments: pendingComments.map((comment) => ({
-            body: comment.body,
-            filePath: comment.filePath,
-            lineNumber: comment.lineNumber,
-            side: comment.side,
-            ...getReviewCommentRangeProps(comment),
-          })),
+          comments: pendingComments.map(toPullRequestReviewComment),
           event,
           source: currentState.source,
         })

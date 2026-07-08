@@ -545,6 +545,40 @@ test('review comment markdown includes file and patch context', () => {
   );
 });
 
+test('review comment markdown includes file-level comments', () => {
+  const file = {
+    fingerprint: 'file-comment-export',
+    path: 'src/comment.ts',
+    sections: [
+      {
+        binary: false,
+        id: 'src/comment.ts:unstaged',
+        kind: 'unstaged',
+        patch: '@@ -1 +1 @@\n-old\n+new\n',
+      },
+    ],
+    status: 'modified',
+  } satisfies ChangedFile;
+
+  const markdown = buildReviewCommentsMarkdown(
+    [file],
+    [
+      {
+        anchor: 'file',
+        body: 'Please review the file structure.',
+        filePath: 'src/comment.ts',
+        id: 'comment-file',
+        sectionId: 'src/comment.ts:unstaged',
+      },
+    ],
+    false,
+  );
+
+  expect(markdown).toContain('1. **src/comment.ts** (File)');
+  expect(markdown).toContain('Please review the file structure.');
+  expect(markdown).toContain('@@ -1 +1 @@');
+});
+
 test('review comment markdown uses custom prefix', () => {
   const file = {
     fingerprint: 'comment-export',

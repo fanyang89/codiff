@@ -616,11 +616,12 @@ export type WalkthroughCommitMessageResult =
 
 export type ReviewAssistantRequest = {
   comment: {
+    anchor?: 'file' | 'line';
     body: string;
     filePath: string;
-    lineNumber: number;
+    lineNumber?: number;
     sectionId: string;
-    side: 'additions' | 'deletions';
+    side?: 'additions' | 'deletions';
     startLineNumber?: number;
     startSide?: 'additions' | 'deletions';
   };
@@ -707,10 +708,11 @@ export type CodiffPreferences = {
 };
 
 export type PullRequestReviewComment = {
+  anchor?: 'file' | 'line';
   body: string;
   filePath: string;
-  lineNumber: number;
-  side: 'additions' | 'deletions';
+  lineNumber?: number;
+  side?: 'additions' | 'deletions';
   startLineNumber?: number;
   startSide?: 'additions' | 'deletions';
   threadId?: string;

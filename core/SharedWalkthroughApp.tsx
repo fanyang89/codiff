@@ -37,6 +37,7 @@ import {
   type WalkthroughBlockScrollTarget,
 } from './app/components/walkthrough/NarrativeWalkthroughView.tsx';
 import { useNarrativeNavigation } from './app/components/walkthrough/useNarrativeNavigation.ts';
+import { WalkthroughProgress } from './app/components/walkthrough/WalkthroughProgress.tsx';
 import { createDefaultConfig } from './config/defaults.ts';
 import { matchesShortcut } from './config/keymap.ts';
 import type { CodiffKeymap } from './config/types.ts';
@@ -62,8 +63,8 @@ import { isNativeInputTarget } from './lib/keyboard.ts';
 import { isGeneratedWalkthroughPath } from './lib/narrative-walkthrough-diff.js';
 import {
   getCommentKey,
-  getReviewCommentRangeProps,
   getReviewCommentsFromState,
+  toPullRequestReviewComment,
 } from './lib/review-comments.ts';
 import {
   updateReviewIdentityCollapsed,
@@ -1173,14 +1174,7 @@ function ReviewSurface({
         ),
       );
       void interactive
-        .onSubmitComment({
-          body: comment.body,
-          filePath: comment.filePath,
-          lineNumber: comment.lineNumber,
-          side: comment.side,
-          ...getReviewCommentRangeProps(comment),
-          ...(comment.threadId ? { threadId: comment.threadId } : {}),
-        })
+        .onSubmitComment(toPullRequestReviewComment(comment))
         .then(() => {
           setFocusCommentId((current) => (current === commentId ? null : current));
           setLocalReviewComments((current) =>
@@ -1225,16 +1219,7 @@ function ReviewSurface({
       const pendingIds = new Set(pendingComments.map((comment) => comment.id));
       setPullRequestReviewSubmitting(event);
       void interactive
-        .onSubmitReview(
-          event,
-          pendingComments.map((comment) => ({
-            body: comment.body,
-            filePath: comment.filePath,
-            lineNumber: comment.lineNumber,
-            side: comment.side,
-            ...getReviewCommentRangeProps(comment),
-          })),
-        )
+        .onSubmitReview(event, pendingComments.map(toPullRequestReviewComment))
         .then(() => {
           setLocalReviewComments((current) =>
             current.filter((comment) => !pendingIds.has(comment.id)),
@@ -1679,6 +1664,17 @@ function ReviewSurface({
     walkthroughRequestPending && interactive?.walkthroughStatus !== 'ready'
       ? 'generating'
       : interactive?.walkthroughStatus;
+  const [walkthroughProgressRevision, setWalkthroughProgressRevision] = useState(0);
+  const previousWalkthroughStatusRef = useRef(walkthroughStatus);
+  useEffect(() => {
+    if (
+      walkthroughStatus === 'generating' &&
+      previousWalkthroughStatusRef.current !== 'generating'
+    ) {
+      setWalkthroughProgressRevision((current) => current + 1);
+    }
+    previousWalkthroughStatusRef.current = walkthroughStatus;
+  }, [walkthroughStatus]);
   const walkthroughReady = !interactive || walkthroughStatus === 'ready';
   const walkthroughFailed = walkthroughStatus === 'failed';
   const walkthroughStatusTitle = walkthroughFailed
@@ -1817,7 +1813,15 @@ function ReviewSurface({
               className={`sidebar-walkthrough-status${walkthroughFailed ? '' : ' codex'}`}
               title={walkthroughStatusDescription ?? undefined}
             >
-              <strong>{walkthroughStatusTitle}</strong>
+              {walkthroughFailed ? (
+                <strong>{walkthroughStatusTitle}</strong>
+              ) : (
+                <WalkthroughProgress
+                  phase={null}
+                  responseLabelIndex={0}
+                  stageRevision={walkthroughProgressRevision}
+                />
+              )}
               {walkthroughStatusDescription ? <span>{walkthroughStatusDescription}</span> : null}
             </div>
           </div>
@@ -1897,7 +1901,13 @@ function ReviewSurface({
             </div>
           </div>
         ) : (
-          <div className="loading codex italic">Generating walkthrough…</div>
+          <div className="loading codex italic">
+            <WalkthroughProgress
+              phase={null}
+              responseLabelIndex={0}
+              stageRevision={walkthroughProgressRevision}
+            />
+          </div>
         )}
       </main>
     </div>

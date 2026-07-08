@@ -1,6 +1,10 @@
 import { expect, test } from 'vite-plus/test';
 import type { ReviewComment } from '../lib/app-types.ts';
-import { getReviewCommentsFromState, getVisibleReviewComments } from '../lib/review-comments.ts';
+import {
+  getReviewCommentsFromState,
+  getVisibleReviewComments,
+  toPullRequestReviewComment,
+} from '../lib/review-comments.ts';
 import type { RepositoryState } from '../types.ts';
 
 const createReviewComment = (overrides: Partial<ReviewComment>): ReviewComment => ({
@@ -102,6 +106,30 @@ test('getReviewCommentsFromState carries GitLab discussion metadata through to r
   });
 });
 
+test('getReviewCommentsFromState preserves file-level GitLab anchors', () => {
+  const state = createPullRequestState();
+  state.reviewComments = [
+    {
+      anchor: 'file',
+      author: { login: 'reviewer' },
+      body: 'Review the file as a whole.',
+      filePath: 'src/a.ts',
+      id: 'gitlab:file',
+    },
+  ];
+
+  expect(getReviewCommentsFromState(state)).toEqual([
+    expect.objectContaining({
+      anchor: 'file',
+      body: 'Review the file as a whole.',
+      filePath: 'src/a.ts',
+      id: 'gitlab:file',
+      isReadOnly: true,
+      sectionId: 'src/a.ts:pull-request:1',
+    }),
+  ]);
+});
+
 test('getVisibleReviewComments hides outdated comments unless they are shown', () => {
   const comments = [
     createReviewComment({ id: 'github:1', isOutdated: true }),
@@ -121,4 +149,23 @@ test('getVisibleReviewComments keeps user-authored comments that are never outda
   const comments = [createReviewComment({ id: 'draft', isReadOnly: false })];
 
   expect(getVisibleReviewComments(comments, false)).toHaveLength(1);
+});
+
+test('serializes file-level thread replies without inventing line metadata', () => {
+  expect(
+    toPullRequestReviewComment(
+      createReviewComment({
+        anchor: 'file',
+        body: 'Reply in the existing discussion.',
+        lineNumber: undefined,
+        side: undefined,
+        threadId: 'discussion-1',
+      }),
+    ),
+  ).toEqual({
+    anchor: 'file',
+    body: 'Reply in the existing discussion.',
+    filePath: 'src/a.ts',
+    threadId: 'discussion-1',
+  });
 });

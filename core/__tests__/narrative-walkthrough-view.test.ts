@@ -16,6 +16,7 @@ import {
   resolveWalkthroughHunkFile,
   resolveWalkthroughHunkRuns,
   walkthroughItemPaths,
+  walkthroughItemTitleFallback,
 } from '../lib/narrative-walkthrough.ts';
 import type {
   ChangedFile,
@@ -191,6 +192,16 @@ test('formatWalkthroughFileList shows filenames up to five unique files', () => 
   expect(formatWalkthroughFileList(['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts']).label).toBe(
     '6 files',
   );
+});
+
+test('walkthrough stop titles fall back to readable prose instead of filenames', () => {
+  expect(
+    walkthroughItemTitleFallback({
+      ...group({ hunks: [appHunk], id: 'compact-generation' }),
+      prose:
+        'Compact walkthrough generation keeps the smaller request while preserving readable labels.',
+    }),
+  ).toBe('Compact walkthrough generation keeps the smaller request while preserving...');
 });
 
 test('walkthrough keyboard navigation ignores editor shortcut chords', () => {

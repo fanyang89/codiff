@@ -17,11 +17,13 @@ const {
   createGlabApiArgs,
   createMergeRequestFetchRefspecs,
   createMergeRequestSource,
+  getGitLabDiscussionReplyEndpoint,
   getGitLabReviewQuickAction,
   getGlabCommand,
   GLAB_NOT_FOUND_CODE,
   GLAB_NOT_FOUND_MESSAGE,
   normalizeGitLabReviewComment,
+  normalizeSubmittedGitLabReviewComment,
   parseGitLabMergeRequestUrl,
   parseGlabJsonPages,
 } = require('../../electron/git-state/merge-request.cjs') as {
@@ -44,12 +46,21 @@ const {
     mergeRequest: Record<string, unknown>,
     metadata: Record<string, unknown>,
   ) => Record<string, unknown>;
+  getGitLabDiscussionReplyEndpoint: (
+    mergeRequest: { number: number; projectPath: string },
+    threadId: string,
+  ) => string;
   getGitLabReviewQuickAction: (event: 'APPROVE' | 'REQUEST_CHANGES') => string;
   getGlabCommand: () => string;
   GLAB_NOT_FOUND_CODE: string;
   GLAB_NOT_FOUND_MESSAGE: string;
   normalizeGitLabReviewComment: (
     note: Record<string, unknown>,
+    url: string,
+  ) => Record<string, unknown> | null;
+  normalizeSubmittedGitLabReviewComment: (
+    note: Record<string, unknown>,
+    submittedComment: Record<string, unknown>,
     url: string,
   ) => Record<string, unknown> | null;
   parseGitLabMergeRequestUrl: (url: string) => Record<string, unknown>;
@@ -60,6 +71,17 @@ const { parseRemoteUrl } = require('../../electron/review-source.cjs') as {
 };
 
 describe('GitLab merge requests', () => {
+  test('builds the endpoint for replying to an existing discussion', () => {
+    expect(
+      getGitLabDiscussionReplyEndpoint(
+        { number: 23, projectPath: 'group/project' },
+        'discussion/with spaces',
+      ),
+    ).toBe(
+      'projects/group%2Fproject/merge_requests/23/discussions/discussion%2Fwith%20spaces/notes',
+    );
+  });
+
   test('sends JSON content types for glab request bodies', () => {
     expect(
       createGlabApiArgs(
@@ -267,6 +289,36 @@ describe('GitLab merge requests', () => {
     expect(ranged.line_range?.start.line_code).toMatch(/^[0-9a-f]{40}_0_10$/);
   });
 
+  test('builds file-level GitLab positions without line metadata', () => {
+    expect(
+      createGitLabPosition(
+        {
+          anchor: 'file',
+          body: 'Review the file as a whole.',
+          filePath: 'src/a.ts',
+        },
+        {
+          diff_refs: {
+            base_sha: 'base',
+            head_sha: 'head',
+            start_sha: 'start',
+          },
+        },
+        {
+          new_path: 'src/new.ts',
+          old_path: 'src/old.ts',
+        },
+      ),
+    ).toEqual({
+      base_sha: 'base',
+      head_sha: 'head',
+      new_path: 'src/new.ts',
+      old_path: 'src/old.ts',
+      position_type: 'file',
+      start_sha: 'start',
+    });
+  });
+
   test('maps unchanged lines and renamed paths for GitLab positions', () => {
     const diff = {
       diff: '@@ -10,3 +12,4 @@\n context\n-old\n+new\n added\n',
@@ -320,6 +372,59 @@ describe('GitLab merge requests', () => {
       lineNumber: 12,
       side: 'additions',
       url: 'https://gitlab.example.com/group/project/-/merge_requests/23#note_44',
+    });
+  });
+
+  test('normalizes file-level GitLab notes without line metadata', () => {
+    expect(
+      normalizeGitLabReviewComment(
+        {
+          author: { username: 'reviewer' },
+          body: 'Please review the file structure.',
+          created_at: '2026-07-08T00:00:00Z',
+          id: 45,
+          position: {
+            new_path: 'src/a.ts',
+            old_path: 'src/a.ts',
+            position_type: 'file',
+          },
+        },
+        'https://gitlab.example.com/group/project/-/merge_requests/23',
+      ),
+    ).toMatchObject({
+      anchor: 'file',
+      author: { login: 'reviewer' },
+      body: 'Please review the file structure.',
+      filePath: 'src/a.ts',
+      id: 'gitlab:45',
+      url: 'https://gitlab.example.com/group/project/-/merge_requests/23#note_45',
+    });
+  });
+
+  test('normalizes GitLab discussion replies that omit position metadata', () => {
+    expect(
+      normalizeSubmittedGitLabReviewComment(
+        {
+          author: { username: 'reviewer' },
+          body: 'Reply in the existing discussion.',
+          created_at: '2026-07-08T00:00:00Z',
+          id: 46,
+        },
+        {
+          anchor: 'file',
+          body: 'Reply in the existing discussion.',
+          filePath: 'src/a.ts',
+          threadId: 'discussion-1',
+        },
+        'https://gitlab.example.com/group/project/-/merge_requests/23',
+      ),
+    ).toMatchObject({
+      anchor: 'file',
+      body: 'Reply in the existing discussion.',
+      filePath: 'src/a.ts',
+      id: 'gitlab:46',
+      threadId: 'discussion-1',
+      url: 'https://gitlab.example.com/group/project/-/merge_requests/23#note_46',
     });
   });
 });

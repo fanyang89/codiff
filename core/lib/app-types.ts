@@ -81,6 +81,7 @@ export type DiffLineCount = {
 };
 
 export type ReviewComment = {
+  anchor?: 'file' | 'line';
   author?: PullRequestExistingReviewComment['author'];
   body: string;
   canEdit?: boolean;
@@ -95,13 +96,13 @@ export type ReviewComment = {
   isOutdated?: boolean;
   isReadOnly?: boolean;
   isThreadResolved?: boolean;
-  lineNumber: number;
+  lineNumber?: number;
   remoteSubmit?: {
     error?: string;
     status: 'error' | 'submitting';
   };
   sectionId: string;
-  side: 'additions' | 'deletions';
+  side?: 'additions' | 'deletions';
   startLineNumber?: number;
   startSide?: 'additions' | 'deletions';
   submittedAt?: string;
