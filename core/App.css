@@ -3420,12 +3420,11 @@ diffs-container .review-comment-thread {
 }
 
 .review-submit-popover {
+  animation: review-submit-popover-in 120ms ease;
   background: var(--code-bg);
   border: 1px solid var(--file-border);
   border-radius: 18px;
-  box-shadow:
-    0 24px 72px -34px rgb(0 0 0 / 0.72),
-    0 12px 28px -18px rgb(0 0 0 / 0.54);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.16);
   color: var(--text);
   corner-shape: squircle;
   display: flex;
@@ -3434,8 +3433,16 @@ diffs-container .review-comment-thread {
   position: absolute;
   right: 0;
   top: calc(100% + 8px);
+  transform-origin: top right;
   width: min(380px, calc(100vw - 24px));
   z-index: 80;
+}
+
+@keyframes review-submit-popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }
 
 .review-submit-popover-editor.review-comment-markdown-editor,
