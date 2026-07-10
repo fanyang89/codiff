@@ -10,7 +10,7 @@ import {
   updateReviewIdentityCollapsed,
   updateReviewIdentityViewed,
 } from '../lib/review-identity.ts';
-import type { ChangedFile, ReviewSource } from '../types.ts';
+import type { ChangedFile, PullRequestCodeQualityFinding, ReviewSource } from '../types.ts';
 import { createChangedFile, createChangedFileWithPatch } from './helpers/fixtures.ts';
 import { renderReact, setInputValue, waitFor } from './helpers/react.tsx';
 import {
@@ -1203,6 +1203,65 @@ test('file-level review comments render as measured file annotations', async () 
       },
       side: 'additions',
     });
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test('code quality findings render as additions annotations', async () => {
+  const file = createChangedFile('src/app.ts');
+  const finding = {
+    description: 'Avoid an unconditional storage lookup.',
+    engineName: 'eslint',
+    filePath: file.path,
+    fingerprint: 'code-quality-1',
+    lineNumber: 1,
+    severity: 'major',
+    status: 'new',
+  } satisfies PullRequestCodeQualityFinding;
+  const view = await renderReact(
+    <ReviewCodeViewHarness
+      codeQualityFindings={[
+        finding,
+        { ...finding, fingerprint: 'resolved', status: 'resolved' },
+        { ...finding, filePath: 'src/other.ts', fingerprint: 'other-file' },
+        { ...finding, fingerprint: 'hidden-line', lineNumber: 99 },
+      ]}
+      files={[file]}
+    />,
+  );
+
+  try {
+    const renderedFinding = view.container.querySelector<HTMLElement>('.code-quality-finding');
+    expect(renderedFinding?.dataset.severity).toBe('major');
+    expect(renderedFinding?.dataset.status).toBe('new');
+    expect(renderedFinding?.textContent).toContain('Code Quality');
+    expect(renderedFinding?.textContent).toContain('Major');
+    expect(renderedFinding?.textContent).toContain('New');
+    expect(renderedFinding?.textContent).toContain(finding.description);
+    expect(renderedFinding?.textContent).toContain('eslint');
+
+    const item = codeViewMock.lastItems.find(
+      (candidate) => candidate.id === 'diff:src/app.ts:unstaged',
+    ) as
+      | {
+          annotations?: ReadonlyArray<{
+            lineNumber: number;
+            metadata: { finding?: PullRequestCodeQualityFinding; type: string };
+            side: string;
+          }>;
+        }
+      | undefined;
+    expect(item?.annotations?.filter(({ metadata }) => metadata.type === 'code-quality')).toEqual([
+      {
+        lineNumber: 1,
+        metadata: {
+          finding,
+          type: 'code-quality',
+        },
+        side: 'additions',
+      },
+    ]);
   } finally {
     await view.cleanup();
   }

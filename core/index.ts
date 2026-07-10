@@ -23,6 +23,7 @@ export type {
   GitIdentity,
   NarrativeWalkthrough,
   PlanCommentThread,
+  PullRequestCodeQualityFinding,
   PullRequestGeneralComment,
   PullRequestGeneralCommentThread,
   PullRequestExistingReviewComment,

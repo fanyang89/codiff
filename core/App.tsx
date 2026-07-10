@@ -2445,6 +2445,7 @@ export default function App() {
 
     const snapshot: SharedWalkthroughSnapshot = {
       branch: currentState.branch,
+      codeQualityFindings: currentState.codeQualityFindings,
       codiffVersion: 'dev',
       exportedAt: new Date().toISOString(),
       files: currentState.files,
@@ -2604,6 +2605,7 @@ export default function App() {
     activeSearchMatch: activeDiffSearchMatch,
     agentId: activeAgentBackend,
     agentLabel,
+    codeQualityFindings: state.codeQualityFindings,
     collapsed,
     comments: visibleReviewComments,
     commitMetadata,

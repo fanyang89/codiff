@@ -75,6 +75,17 @@ export type PullRequestMergeOptions = {
   squash: boolean;
 };
 
+export type PullRequestCodeQualityFinding = {
+  description: string;
+  engineName?: string;
+  filePath: string;
+  fingerprint: string;
+  lineNumber: number;
+  severity: 'blocker' | 'critical' | 'info' | 'major' | 'minor' | 'unknown';
+  status: 'existing' | 'new' | 'resolved';
+  url?: string;
+};
+
 export type PullRequestMergeState = {
   autoMergeEnabled: boolean;
   canCancelAutoMerge: boolean;
@@ -203,6 +214,7 @@ export type RepositoryHistory = {
 
 export type RepositoryState = {
   branch: string | null;
+  codeQualityFindings?: ReadonlyArray<PullRequestCodeQualityFinding>;
   commitMetadata?: CommitMetadata;
   files: ReadonlyArray<ChangedFile>;
   generalComments?: ReadonlyArray<PullRequestGeneralCommentThread>;
@@ -297,6 +309,7 @@ export type PlanHandoffStatus = 'closed' | 'done';
 
 export type SharedWalkthroughSnapshot = {
   branch: string | null;
+  codeQualityFindings?: ReadonlyArray<PullRequestCodeQualityFinding>;
   codiffVersion: string;
   exportedAt: string;
   files: ReadonlyArray<ChangedFile>;

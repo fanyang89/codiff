@@ -6,6 +6,7 @@ import { CheckIcon as Check } from '@phosphor-icons/react/Check';
 import { ColumnsIcon as Columns } from '@phosphor-icons/react/Columns';
 import { ImageBrokenIcon as ImageBroken } from '@phosphor-icons/react/ImageBroken';
 import { SquareSplitVerticalIcon as SquareSplitVertical } from '@phosphor-icons/react/SquareSplitVertical';
+import { WarningOctagonIcon as WarningOctagon } from '@phosphor-icons/react/WarningOctagon';
 import { XIcon as X } from '@phosphor-icons/react/X';
 import {
   type CodeViewLineSelection,
@@ -47,6 +48,7 @@ import type { CodiffDiffStyle, CodiffKeymap } from '../../config/types.ts';
 import type {
   CodeViewInstance,
   CodeViewItemMetadata,
+  CodeQualityAnnotationMetadata,
   DiffSearchMatch,
   ReviewAnnotationMetadata,
   ReviewComment,
@@ -105,6 +107,7 @@ import type {
   DiffImageContentResult,
   DiffSection,
   GitIdentity,
+  PullRequestCodeQualityFinding,
   PullRequestExistingReviewComment,
   ReviewAuthor,
   ReviewSource,
@@ -2075,6 +2078,45 @@ function ReviewAnnotation({
   );
 }
 
+const codeQualitySeverityLabel: Record<PullRequestCodeQualityFinding['severity'], string> = {
+  blocker: 'Blocker',
+  critical: 'Critical',
+  info: 'Info',
+  major: 'Major',
+  minor: 'Minor',
+  unknown: 'Unknown',
+};
+
+function CodeQualityAnnotation({
+  annotation,
+}: {
+  annotation: DiffLineAnnotation<CodeQualityAnnotationMetadata>;
+}) {
+  const { finding } = annotation.metadata;
+  return (
+    <div className="review-comment-thread code-quality-finding-thread">
+      <div
+        className="review-comment-body code-quality-finding"
+        data-severity={finding.severity}
+        data-status={finding.status}
+      >
+        <div className="review-comment-header code-quality-finding-header">
+          <WarningOctagon aria-hidden size={16} weight="fill" />
+          <strong>Code Quality</strong>
+          <span className="code-quality-finding-severity">
+            {codeQualitySeverityLabel[finding.severity]}
+          </span>
+          {finding.status === 'new' ? <span className="code-quality-finding-new">New</span> : null}
+        </div>
+        <div className="code-quality-finding-content">
+          <p>{finding.description}</p>
+          {finding.engineName ? <span>{finding.engineName}</span> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const scrollTargetRetryFrameLimit = 90;
 
 const getEffectiveScrollBehavior = (behavior: ReviewScrollBehavior) =>
@@ -2376,6 +2418,7 @@ export function ReviewCodeView({
   allowViewedToggle = false,
   blocks,
   bottomInset = codeViewLayout.paddingBottom,
+  codeQualityFindings = [],
   collapsed,
   comments,
   commitMetadata,
@@ -2434,6 +2477,7 @@ export function ReviewCodeView({
   allowViewedToggle?: boolean;
   blocks?: ReadonlyArray<ReviewDiffBlock>;
   bottomInset?: number;
+  codeQualityFindings?: ReadonlyArray<PullRequestCodeQualityFinding>;
   collapsed: ReadonlySet<string>;
   comments: ReadonlyArray<ReviewComment>;
   commitMetadata: CommitMetadata | null;
@@ -2754,6 +2798,24 @@ export function ReviewCodeView({
         const fileCommentAnnotations = [...annotationMap.values()].filter(
           (annotation) => annotation.lineNumber === 0,
         );
+        const codeQualityAnnotations = codeQualityFindings
+          .filter(
+            (finding) =>
+              finding.status !== 'resolved' &&
+              finding.filePath === file.path &&
+              lineIsVisibleInFileDiff(fileDiff, 'additions', finding.lineNumber),
+          )
+          .map(
+            (finding) =>
+              ({
+                lineNumber: finding.lineNumber,
+                metadata: {
+                  finding,
+                  type: 'code-quality',
+                },
+                side: 'additions',
+              }) satisfies DiffLineAnnotation<ReviewAnnotationMetadata>,
+          );
 
         nextItemMetadata.set(id, {
           blockId: block.id,
@@ -2842,7 +2904,7 @@ export function ReviewCodeView({
           continue;
         }
         nextItems.push({
-          annotations: [...annotationMap.values()],
+          annotations: [...annotationMap.values(), ...codeQualityAnnotations],
           collapsed: isCollapsed,
           fileDiff,
           id,
@@ -2850,7 +2912,13 @@ export function ReviewCodeView({
           version: getItemVersion(
             `${reviewVersionPrefix}:${sectionStateVersionKey}:${
               showWhitespace ? 'ws' : 'ignore-ws'
-            }:${diffStyle}:${getReviewCommentsDigest(sectionComments)}`,
+            }:${diffStyle}:${getReviewCommentsDigest(sectionComments)}:${codeQualityAnnotations
+              .map(({ metadata }) =>
+                metadata.type === 'code-quality'
+                  ? `${metadata.finding.fingerprint}:${metadata.finding.status}`
+                  : '',
+              )
+              .join(',')}`,
           ),
         });
       }
@@ -2866,6 +2934,7 @@ export function ReviewCodeView({
     };
   }, [
     collapsed,
+    codeQualityFindings,
     commentLayoutPassByItem,
     commentsBySection,
     diffLineHeight,
@@ -3796,6 +3865,14 @@ export function ReviewCodeView({
 
       if (annotation.metadata.type === 'walkthrough-header') {
         return annotation.metadata.header;
+      }
+
+      if (annotation.metadata.type === 'code-quality') {
+        return (
+          <CodeQualityAnnotation
+            annotation={annotation as DiffLineAnnotation<CodeQualityAnnotationMetadata>}
+          />
+        );
       }
 
       return (

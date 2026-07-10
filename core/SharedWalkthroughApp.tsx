@@ -1691,6 +1691,7 @@ function ReviewSurface({
     activeSearchMatch: null,
     agentId: snapshot.walkthrough.agent,
     agentLabel: getAgentLabel(snapshot.walkthrough.agent),
+    codeQualityFindings: snapshot.codeQualityFindings,
     collapsed,
     comments: reviewComments,
     commitMetadata: null,
@@ -2157,6 +2158,7 @@ export function MergeRequestReviewApp({
   const snapshot = useMemo<SharedWalkthroughSnapshot>(
     () => ({
       branch: state.branch,
+      codeQualityFindings: state.codeQualityFindings,
       codiffVersion: 'web',
       exportedAt: new Date(state.generatedAt).toISOString(),
       files: state.files,
