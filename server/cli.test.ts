@@ -1,5 +1,5 @@
 import { expect, test } from 'vite-plus/test';
-import { parseServerArguments } from './cli.mjs';
+import { parseServerArguments } from './command.mjs';
 
 test('server arguments preserve repository paths and parse listener options', () => {
   const parsed = parseServerArguments([

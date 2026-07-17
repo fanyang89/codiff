@@ -1,6 +1,7 @@
 # Codiff
 
-Codiff is a beautiful, minimal, local diff viewer for reviewing Git changes and committing them.
+Codiff is a beautiful, minimal Git review UI. It can run as a read-only web server or as a desktop
+app.
 
 <img width="48%" src="https://github.com/user-attachments/assets/9801587d-5879-461a-b375-9fbfa3c5f25d" />
 <img width="48%" src="https://github.com/user-attachments/assets/8b92902b-1112-4553-ba59-74e84a61ca7d" />
@@ -13,6 +14,56 @@ Codiff is a beautiful, minimal, local diff viewer for reviewing Git changes and 
 
 ## Download
 
+### Linux Web CLI
+
+Download `codiff-linux-x64` from [GitHub Releases](https://github.com/nkzw-tech/codiff/releases),
+make it executable, and place it on your `PATH`. The binary includes the web UI and Node runtime;
+the server only needs `git`.
+
+```bash
+chmod +x codiff-linux-x64
+mv codiff-linux-x64 ~/.local/bin/codiff
+```
+
+Run it inside a repository:
+
+```bash
+codiff
+```
+
+Codiff listens on the active network interfaces, chooses an available port, and prints authenticated
+URLs. Open one of those URLs from a machine on the same private network or VPN. The server remains
+in the foreground until you press <kbd>Ctrl</kbd>+<kbd>C</kbd>.
+
+```text
+Codiff is serving this repository (read-only):
+
+  http://10.0.0.12:42177/?token=...
+
+Press Ctrl+C to stop.
+```
+
+The web server exposes repository history, working-tree changes, commit diffs, search, and images.
+It does not expose commit, file-write, walkthrough, sharing, or pull-request mutation APIs. Traffic
+uses HTTP, so the direct-listener mode is intended for trusted private networks and VPNs.
+
+Use `--bind`, `--port`, or `--token` to override the listener settings:
+
+```bash
+codiff --bind 127.0.0.1 --port 7331
+codiff HEAD /path/to/repository
+```
+
+Build and smoke-test the Linux x64 executable locally with:
+
+```bash
+pnpm run build:sea
+```
+
+The executable and its SHA-256 file are written to `out/sea/`.
+
+### Desktop App
+
 Install with Homebrew:
 
 ```bash
@@ -23,7 +74,7 @@ Download the latest Codiff app from [GitHub Releases](https://github.com/nkzw-te
 
 After installing the app, run `Codiff > Install Terminal Helper` to make the `codiff` command available in your shell.
 
-## Command Line
+## Desktop App Command Line
 
 ```bash
 codiff

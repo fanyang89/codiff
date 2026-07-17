@@ -13,7 +13,7 @@
     "url": "https://github.com/nkzw-tech/codiff.git"
   },
   "bin": {
-    "codiff": "./bin/codiff.js"
+    "codiff": "./server/cli.mjs"
   },
   "files": [
     "bin",
@@ -24,12 +24,14 @@
     "dist",
     "electron",
     "opencode",
-    "pi"
+    "pi",
+    "server"
   ],
   "type": "module",
   "main": "./electron/main.cjs",
   "scripts": {
     "build": "vp run --filter '@nkzw/codiff-core' build && vp run --filter '@nkzw/codiff-service' build && vp run --filter '@nkzw/codiff-web' build && vp build",
+    "build:sea": "vpr build && node scripts/bundle-sea.mjs && node scripts/build-sea.mjs && node scripts/test-sea.mjs",
     "codiff": "node ./server/cli.mjs",
     "dev": "vp dev --host 127.0.0.1",
     "dev:app": "ELECTRON_RENDERER_URL=http://127.0.0.1:5173 node ./bin/codiff.js",
@@ -74,6 +76,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "ghostty-web": "^0.4.0",
     "jsdom": "^29.1.1",
+    "postject": "1.0.0-alpha.6",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "typescript": "^7.0.2",

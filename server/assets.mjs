@@ -1,5 +1,7 @@
+import { Buffer } from 'node:buffer';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
+import { getAsset, getAssetKeys } from 'node:sea';
 
 const mimeTypes = new Map([
   ['.css', 'text/css; charset=utf-8'],
@@ -49,5 +51,33 @@ export const createFileAssetStore = (root) => {
     },
   };
 };
+
+export const createSeaAssetStore = () => {
+  const keys = new Set(getAssetKeys());
+  return {
+    get: async (requestPath) => {
+      let decodedPath;
+      try {
+        decodedPath = decodeURIComponent(requestPath);
+      } catch {
+        return null;
+      }
+      const relativePath = decodedPath === '/' ? 'index.html' : decodedPath.replace(/^\/+/, '');
+      if (relativePath.split('/').includes('..')) {
+        return null;
+      }
+      const key = `web/${relativePath}`;
+      if (!keys.has(key)) {
+        return null;
+      }
+      return {
+        body: Buffer.from(getAsset(key)),
+        contentType: getContentType(relativePath),
+      };
+    },
+  };
+};
+
+export const getSeaVersion = () => getAsset('meta/version', 'utf8');
 
 export { getContentType };

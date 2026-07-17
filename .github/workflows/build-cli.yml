@@ -1,0 +1,63 @@
+name: build-cli
+
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-linux-x64:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 24.15.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build single executable
+        run: pnpm run build:sea
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codiff-linux-x64
+          path: |
+            out/sea/codiff-linux-x64
+            out/sea/codiff-linux-x64.sha256
+
+      - name: Attach release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release view "${TAG_NAME}" >/dev/null 2>&1 \
+            || gh release create "${TAG_NAME}" --generate-notes --title "${TAG_NAME}" --verify-tag \
+            || gh release view "${TAG_NAME}" >/dev/null
+          gh release upload "${TAG_NAME}" \
+            out/sea/codiff-linux-x64 \
+            out/sea/codiff-linux-x64.sha256 \
+            --clobber
