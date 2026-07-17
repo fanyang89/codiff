@@ -152,6 +152,40 @@ test('app commands register the complete command set and delegate dynamic action
   }
 });
 
+test('app commands omit unavailable web actions', async () => {
+  let commands: ReturnType<typeof useAppCommands> = [];
+  const view = await renderReact(
+    <AppCommandsHarness
+      onCommands={(nextCommands) => (commands = nextCommands)}
+      options={{
+        allowFileSystem: false,
+        allowWalkthrough: false,
+        changeSidebarMode: vi.fn(),
+        focusFileFilter: vi.fn(),
+        getReviewCommandTarget: () => null,
+        onOpenDiffSearch: vi.fn(),
+        onOpenSelectedFile: vi.fn(),
+        onRefreshRepository: vi.fn(),
+        onToggleSidebar: vi.fn(),
+        onToggleViewed: vi.fn(),
+        onToggleWordWrap: vi.fn(),
+        preferencesRef: { current: createDefaultConfig().settings },
+        reviewCommentsRef: { current: [] },
+        stateRef: { current: null },
+        viewedRef: { current: {} },
+      }}
+    />,
+  );
+
+  try {
+    expect(commands.map((command) => command.id)).not.toContain('sidebar-walkthrough');
+    expect(commands.map((command) => command.id)).not.toContain('open-file');
+    expect(commands.map((command) => command.id)).not.toContain('open-config-file');
+  } finally {
+    await view.cleanup();
+  }
+});
+
 const keyboardKeymap = {
   ...defaultKeymap,
   commandBar: 'c',

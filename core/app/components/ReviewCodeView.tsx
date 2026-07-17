@@ -306,7 +306,7 @@ function CodeViewHeader({
           {isMarkdownPreview ? 'View as Diff' : 'View as Markdown'}
         </Button>
       ) : null}
-      {canLoadSection && !readOnly ? (
+      {canLoadSection ? (
         <button
           className="codiff-load-button"
           disabled={isSectionLoading}

@@ -1610,6 +1610,10 @@ html[data-codiff-platform='darwin'] .sidebar {
   z-index: 20;
 }
 
+html[data-codiff-platform='web'] .window-drag-region {
+  display: none;
+}
+
 .review-source-loading {
   background: var(--app-bg);
   width: 100%;

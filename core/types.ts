@@ -414,8 +414,15 @@ export type WalkthroughContext = {
 
 export type CodiffLaunchOptions = {
   agentBackend?: 'codex' | 'claude' | 'opencode' | 'pi';
+  capabilities?: {
+    commit: boolean;
+    fileSystem: boolean;
+    reviewWrite: boolean;
+    walkthrough: boolean;
+  };
   claudeSessionId?: string;
   codexSessionId?: string;
+  initialSidebarMode?: 'history' | 'tree' | 'walkthrough';
   opencodeSessionId?: string;
   piSessionId?: string;
   /** Exact Markdown file opened by the blocking plan handoff. */

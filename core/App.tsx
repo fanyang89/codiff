@@ -199,6 +199,10 @@ export default function App() {
   const [terminalHelperStatus, setTerminalHelperStatus] = useState<TerminalHelperStatus>(
     defaultTerminalHelperStatus,
   );
+  const allowCommit = launchOptions.capabilities?.commit !== false;
+  const allowFileSystem = launchOptions.capabilities?.fileSystem !== false;
+  const allowReviewWrite = launchOptions.capabilities?.reviewWrite !== false;
+  const allowWalkthrough = launchOptions.capabilities?.walkthrough !== false;
   const [sharePlanEnabled, setSharePlanEnabled] = useState(false);
   const historyRequestRef = useRef(0);
   const historySourceRef = useRef<ReviewSource | null>(null);
@@ -679,7 +683,9 @@ export default function App() {
 
       setLaunchOptions(nextLaunchOptions);
       setSidebarMode(
-        shouldLoadNarrative ? 'walkthrough' : shouldStartInHistory ? 'history' : 'tree',
+        shouldLoadNarrative
+          ? 'walkthrough'
+          : (nextLaunchOptions.initialSidebarMode ?? (shouldStartInHistory ? 'history' : 'tree')),
       );
       if (shouldLoadNarrative) {
         startWalkthroughLoading();
@@ -1461,6 +1467,8 @@ export default function App() {
   );
 
   const commandBarCommands = useAppCommands({
+    allowFileSystem,
+    allowWalkthrough,
     changeSidebarMode,
     focusFileFilter,
     getReviewCommandTarget,
@@ -1651,6 +1659,7 @@ export default function App() {
     focusCommentRequest,
     gitIdentity,
     hunkNavigation,
+    isReadOnly: !allowReviewWrite,
     itemVersionByKey,
     keymap: codiffConfig.keymap,
     loadingSectionIds,
@@ -1661,8 +1670,8 @@ export default function App() {
     onLoadImageContent: window.codiff.getDiffImageContent,
     onLoadSection: loadDiffSection,
     onLoadSectionContents: loadDiffSectionContents,
-    onOpenFile: openFile,
-    onRefreshMarkdown: refreshMarkdownFile,
+    onOpenFile: allowFileSystem ? openFile : undefined,
+    onRefreshMarkdown: allowFileSystem ? refreshMarkdownFile : undefined,
     onSaveCommentEdit: updateComment,
     onSelectPathFromScroll: updateSelectedPathFromScroll,
     onSubmitComment: submitPullRequestComment,
@@ -1672,19 +1681,22 @@ export default function App() {
     searchQuery: diffSearchQuery,
     showWhitespace,
     source: state.source,
-    sourceDescriptionActions: isPullRequest ? (
-      <PullRequestReviewButtons
-        disabled={pullRequestReviewSubmitting != null}
-        hasPendingComments={hasPendingReviewComments}
-        onSubmitReview={submitPullRequestReview}
-        reviewStatus={state.source.type === 'pull-request' ? state.source.reviewStatus : undefined}
-        showCommentReview={
-          state.source.type === 'pull-request' &&
-          (state.source.provider === 'github' || state.source.host === 'github.com')
-        }
-      />
-    ) : undefined,
-    supportsReviewCommentActions: isPullRequest,
+    sourceDescriptionActions:
+      allowReviewWrite && isPullRequest ? (
+        <PullRequestReviewButtons
+          disabled={pullRequestReviewSubmitting != null}
+          hasPendingComments={hasPendingReviewComments}
+          onSubmitReview={submitPullRequestReview}
+          reviewStatus={
+            state.source.type === 'pull-request' ? state.source.reviewStatus : undefined
+          }
+          showCommentReview={
+            state.source.type === 'pull-request' &&
+            (state.source.provider === 'github' || state.source.host === 'github.com')
+          }
+        />
+      ) : undefined,
+    supportsReviewCommentActions: allowReviewWrite && isPullRequest,
     theme: preferences.theme,
     viewed,
     wordWrap,
@@ -1705,12 +1717,18 @@ export default function App() {
     );
   };
   const reviewModes = [
-    {
-      icon: <Path aria-hidden size={14} weight="bold" />,
-      indicator: walkthroughUnread ? <span aria-hidden className="review-mode-dot" /> : undefined,
-      label: 'Walkthrough',
-      value: 'walkthrough',
-    },
+    ...(allowWalkthrough
+      ? [
+          {
+            icon: <Path aria-hidden size={14} weight="bold" />,
+            indicator: walkthroughUnread ? (
+              <span aria-hidden className="review-mode-dot" />
+            ) : undefined,
+            label: 'Walkthrough',
+            value: 'walkthrough' as const,
+          },
+        ]
+      : []),
     {
       icon: <TreeStructure aria-hidden size={14} weight="bold" />,
       label: 'Tree',
@@ -1826,6 +1844,7 @@ export default function App() {
       ) : null}
       <aside className="squircle sidebar">
         <Sidebar
+          allowCommit={allowCommit}
           branchSource={
             historySource?.type === 'branch-diff'
               ? historySource
@@ -1840,7 +1859,7 @@ export default function App() {
                   }
                 : null
           }
-          commitFiles={state.files}
+          commitFiles={allowCommit ? state.files : []}
           commitViewOpen={showPlainCommitView}
           currentSource={pendingSource ?? state.source}
           files={visibleFiles}

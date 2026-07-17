@@ -24,6 +24,7 @@ import type { NarrativeNavigation } from './walkthrough/useNarrativeNavigation.t
 import { WalkthroughProgress } from './walkthrough/WalkthroughProgress.tsx';
 
 export function Sidebar({
+  allowCommit,
   branchSource,
   commitFiles,
   commitViewOpen,
@@ -53,6 +54,7 @@ export function Sidebar({
   walkthroughLoading,
   walkthroughProgress,
 }: {
+  allowCommit: boolean;
   branchSource: Extract<ReviewSource, { type: 'branch-diff' }> | null;
   commitFiles: ReadonlyArray<ChangedFile>;
   commitViewOpen: boolean;
@@ -97,7 +99,10 @@ export function Sidebar({
   );
   const showTotalLineCount = mode !== 'history' && totalLineCount.countable;
   const showCommitButton =
-    mode === 'tree' && currentSource.type === 'working-tree' && commitFiles.length > 0;
+    allowCommit &&
+    mode === 'tree' &&
+    currentSource.type === 'working-tree' &&
+    commitFiles.length > 0;
   const showFooter = showTotalLineCount || showCommitButton;
 
   useEffect(() => {

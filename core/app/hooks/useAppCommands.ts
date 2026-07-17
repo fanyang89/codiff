@@ -7,6 +7,8 @@ import { isReviewIdentityViewed } from '../../lib/review-identity.ts';
 import type { ChangedFile, CodiffPreferences, RepositoryState } from '../../types.ts';
 
 type UseAppCommandsOptions = {
+  allowFileSystem?: boolean;
+  allowWalkthrough?: boolean;
   changeSidebarMode: (mode: SidebarMode) => void;
   focusFileFilter: () => void;
   getReviewCommandTarget: () => ReviewCommandTarget | null;
@@ -23,6 +25,8 @@ type UseAppCommandsOptions = {
 };
 
 export function useAppCommands({
+  allowFileSystem = true,
+  allowWalkthrough = true,
   changeSidebarMode,
   focusFileFilter,
   getReviewCommandTarget,
@@ -65,11 +69,13 @@ export function useAppCommands({
         id: 'sidebar-history',
         title: 'Show History',
       }),
-      registry.register({
-        execute: () => changeSidebarMode('walkthrough'),
-        id: 'sidebar-walkthrough',
-        title: 'Show Walkthrough',
-      }),
+      allowWalkthrough
+        ? registry.register({
+            execute: () => changeSidebarMode('walkthrough'),
+            id: 'sidebar-walkthrough',
+            title: 'Show Walkthrough',
+          })
+        : null,
       registry.register({
         execute: () => {
           const currentState = stateRef.current;
@@ -128,13 +134,15 @@ export function useAppCommands({
         id: 'toggle-viewed',
         title: 'Toggle Viewed',
       }),
-      registry.register({
-        description: () => getReviewCommandTarget()?.file.path ?? null,
-        execute: onOpenSelectedFile,
-        id: 'open-file',
-        keymapAction: 'openFile',
-        title: 'Open File in Editor',
-      }),
+      allowFileSystem
+        ? registry.register({
+            description: () => getReviewCommandTarget()?.file.path ?? null,
+            execute: onOpenSelectedFile,
+            id: 'open-file',
+            keymapAction: 'openFile',
+            title: 'Open File in Editor',
+          })
+        : null,
       registry.register({
         execute: onToggleSidebar,
         id: 'toggle-sidebar',
@@ -187,19 +195,21 @@ export function useAppCommands({
         id: 'reset-code-font-size',
         title: 'Reset Code Font Size',
       }),
-      registry.register({
-        execute: () => {
-          void window.codiff.openConfigFile().catch(() => {});
-        },
-        id: 'open-config-file',
-        title: 'Open Config File',
-      }),
+      allowFileSystem
+        ? registry.register({
+            execute: () => {
+              void window.codiff.openConfigFile().catch(() => {});
+            },
+            id: 'open-config-file',
+            title: 'Open Config File',
+          })
+        : null,
       registry.register({
         execute: onRefreshRepository,
         id: 'reload',
         title: 'Refresh Changes',
       }),
-    ];
+    ].filter((unregister): unregister is () => void => unregister != null);
     setCommands(registry.commands);
 
     return () => {
@@ -208,6 +218,8 @@ export function useAppCommands({
       }
     };
   }, [
+    allowFileSystem,
+    allowWalkthrough,
     changeSidebarMode,
     focusFileFilter,
     getReviewCommandTarget,
