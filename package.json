@@ -30,7 +30,7 @@
   "main": "./electron/main.cjs",
   "scripts": {
     "build": "vp run --filter '@nkzw/codiff-core' build && vp run --filter '@nkzw/codiff-service' build && vp run --filter '@nkzw/codiff-web' build && vp build",
-    "codiff": "node ./bin/codiff.js",
+    "codiff": "node ./server/cli.mjs",
     "dev": "vp dev --host 127.0.0.1",
     "dev:app": "ELECTRON_RENDERER_URL=http://127.0.0.1:5173 node ./bin/codiff.js",
     "electron": "electron .",
@@ -44,6 +44,7 @@
     "package:app": "vp build && electron-forge package",
     "prepack": "vp build",
     "prepare": "vp config",
+    "serve": "node ./server/cli.mjs",
     "test": "vp test",
     "test:integration": "vp run build && vp test -c vitest.cloudflare.config.ts"
   },

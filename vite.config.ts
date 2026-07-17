@@ -109,6 +109,7 @@ export default defineConfig({
       'core/**/*.test.{ts,tsx}',
       'electron/**/*.test.ts',
       'service/**/*.test.ts',
+      'server/**/*.test.ts',
       'web/**/*.test.{ts,tsx}',
     ],
     maxWorkers: testWorkers,
